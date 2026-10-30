@@ -1,0 +1,11 @@
+{
+  "manifest_version": 3,
+  "name": "Word Catcher",
+  "version": "0.1.0",
+  "description": "记录你在网页上划选的英文单词，第二次划到自动加入生词本。纯本地，无网络。",
+  "permissions": ["storage"],
+  "background": { "service_worker": "background.js", "type": "module" },
+  "action": { "default_popup": "popup.html", "default_icon": { "16": "icons/16.png", "48": "icons/48.png", "128": "icons/128.png" } },
+  "icons": { "16": "icons/16.png", "48": "icons/48.png", "128": "icons/128.png" },
+  "content_scripts": [{ "matches": ["<all_urls>"], "js": ["content.js"], "run_at": "document_idle", "all_frames": false }]
+}
