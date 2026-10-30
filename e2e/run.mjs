@@ -1,9 +1,9 @@
-import { chromium } from 'playwright-core';
+import { chromium } from 'playwright-core'; // uses Playwright's Chromium (npx playwright-core install chromium); branded Chrome ignores --load-extension
 import http from 'node:http'; import fs from 'node:fs'; import path from 'node:path';
 const dist = path.resolve('dist'); const out = path.resolve('e2e/out'); fs.mkdirSync(out, { recursive: true });
 const srv = http.createServer((_q, r) => { r.setHeader('content-type', 'text/html'); r.end(fs.readFileSync('e2e/page.html')); }).listen(8765);
 const ctx = await chromium.launchPersistentContext(fs.mkdtempSync('/tmp/wc-'), {
-  executablePath: '/usr/bin/google-chrome', headless: false,
+  headless: false,
   args: ['--headless=new', `--disable-extensions-except=${dist}`, `--load-extension=${dist}`, '--disable-features=DisableLoadExtensionCommandLineSwitch', '--no-sandbox'],
 });
 let [sw] = ctx.serviceWorkers(); if (!sw) sw = await ctx.waitForEvent('serviceworker', { timeout: 15000 });
