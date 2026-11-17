@@ -41,17 +41,27 @@ function onSelectionEnd() {
   if (key === lastKey) return;
   lastKey = key;
   const payload = { word: target, sentence: sentenceFor(sel, target), url: cleanUrl(location.href), time: Date.now() };
-  const rect = sel.getRangeAt(0).getBoundingClientRect();
-  // Phrases are judged by AI first. The lookup icon for phrases comes later (ticket #8).
+  // Phrases are judged by AI first, and the icon shows only once the judgement passes.
   const msg = word ? { type: 'capture', payload } : { type: 'capturePhrase', payload };
   chrome.runtime.sendMessage(msg).then(async (r: CaptureResult) => {
     // The icon shows for every valid word once AI is set up, including repeats that do not count.
-    if (word && r?.aiConfigured) showIcon(word, payload.sentence, rect);
+    // A phrase gets one only when its judgement passed. The judgement takes time, so the icon is placed
+    // only if the same text is still selected, using the selection's current position.
+    const iconWord = word ?? (r?.isPhrase ? target : null);
+    const now = window.getSelection();
+    if (iconWord && r?.aiConfigured && now && !now.isCollapsed && normalizedSelection(now.toString()) === iconWord) {
+      showIcon(iconWord, payload.sentence, now.getRangeAt(0).getBoundingClientRect());
+    }
     if (!r?.becameSaved) return;
     const { settings } = await chrome.storage.local.get('settings');
     if ((settings as Settings | undefined)?.toast === false) return;
     toast(`✓ 已加入生词本: ${target}`);
   }).catch(() => { /* extension reloaded; ignore */ });
+}
+
+/** The word or phrase a selection text would be looked up as, or null. */
+function normalizedSelection(text: string): string | null {
+  return acceptSelection(text) ?? phraseCandidate(text);
 }
 
 function toast(text: string) {

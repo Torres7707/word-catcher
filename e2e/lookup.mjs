@@ -20,6 +20,16 @@ const answer = {
   examples: [{ en: 'A happy serendipity brought them together.', translation: '一次幸运的邂逅让他们走到了一起。' }],
   meaning: '在这句里指读文档时的意外收获',
 };
+// A phrase the fake judges as a phrase, with empty collocations and phrases so the card skips those sections.
+const phraseAnswer = { definitions: ['n. 读文档时的收获'], collocations: [], phrases: [], examples: [], meaning: '读文档这件事' };
+// Route by what each request asks for. The judgement and the phrase lookup both carry the phrase text.
+const replyFor = (body) => {
+  // The judgement's system prompt is the only place that describes a fixed expression.
+  if (body.includes('fixed expression that a learner')) return { isPhrase: true, confidence: 0.9 };
+  // A phrase lookup names the phrase alone or as 'Word: reading docs'. A word in a sentence containing it does not match.
+  if (body.includes('"reading docs"') || body.includes('Word: reading docs')) return phraseAnswer;
+  return answer;
+};
 let gatewayCalls = 0;
 let gatewayFails = false;
 const gateway = http.createServer((req, res) => {
@@ -32,7 +42,7 @@ const gateway = http.createServer((req, res) => {
       res.writeHead(200, { ...cors, 'content-type': 'application/json' });
       res.end(JSON.stringify({
         id: 'x', object: 'chat.completion', created: 0, model: 'fake',
-        choices: [{ index: 0, message: { role: 'assistant', content: JSON.stringify(answer) }, finish_reason: 'stop' }],
+        choices: [{ index: 0, message: { role: 'assistant', content: JSON.stringify(replyFor(body)) }, finish_reason: 'stop' }],
         usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
       }));
       return;
@@ -151,6 +161,19 @@ check('重试 succeeds once the gateway recovers', gatewayCalls === 4 && (await 
 // 6. A click outside closes the card.
 await page.mouse.click(5, 5);
 check('clicking outside closes the card', !(await hostExists()));
+
+// 6b. A phrase that the judgement passes gets an icon, and its card shows the same sections as a word.
+await selectWord('reading docs');
+await page.waitForTimeout(2500);
+await page.waitForSelector('#word-catcher-lookup', { state: 'attached', timeout: 8000 });
+check('phrase icon appears once the judgement passes', await hostExists());
+await clickIcon();
+await page.waitForFunction(() => (document.getElementById('word-catcher-lookup')?.shadowRoot?.querySelector('.card')?.textContent ?? '').includes('释义'), null, { timeout: 8000 });
+text = await cardText();
+check('phrase card shows the definition', text.includes('读文档时的收获'), text.slice(0, 80));
+check('phrase card shows the meaning in the sentence', text.includes('原句中的意思') && text.includes('读文档这件事'));
+check('empty collocation and phrase sections are not shown', !text.includes('搭配') && !text.includes('短语'), text.slice(0, 120));
+await page.keyboard.press('Escape');
 
 // 7. Without a saved model there is no icon, and counting still works.
 await sw.evaluate(() => chrome.storage.local.set({ aiConfig: { baseUrl: 'http://127.0.0.1:3425/v1', apiKey: '', model: '', language: 'zh-CN' } }));

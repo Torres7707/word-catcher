@@ -1,7 +1,7 @@
 import { MockLanguageModelV3 } from 'ai/test';
 import { DEFAULT_AI_CONFIG, judgePhrase } from '../src/lib/ai';
 import { createStore, type Area, type AiPort } from '../src/lib/store';
-import type { AiConfig, AiPhraseResult, SelectionEvent, Words } from '../src/lib/types';
+import type { AiConfig, AiPhraseResult, CaptureResult, SelectionEvent, Words } from '../src/lib/types';
 import { addPhraseCheck, applySelection, MAX_PHRASE_CHECKS, mergeWords, phraseCandidate, PHRASE_THRESHOLD } from '../src/lib/words';
 import type { PhraseCheck } from '../src/lib/types';
 
@@ -29,7 +29,7 @@ function fakeAi(result: AiPhraseResult | ((text: string) => Promise<AiPhraseResu
 
 const sel = (word: string, time = 1_000_000, url = 'http://a.test/p'): SelectionEvent => ({ word, sentence: `We ${word} today.`, url, time });
 const capture = (store: ReturnType<typeof createStore>, word: string, time?: number, url?: string) =>
-  store.handle({ type: 'capturePhrase', payload: sel(word, time, url) });
+  store.handle({ type: 'capturePhrase', payload: sel(word, time, url) }) as Promise<CaptureResult>;
 
 describe('phraseCandidate', () => {
   it('accepts 2 to 6 plain words and normalizes case and spacing', () => {
@@ -199,6 +199,23 @@ describe('store capturePhrase message', () => {
     const store = createStore(memoryArea({ aiConfig: cfg }), undefined, ai.port);
     expect(await capture(store, 'a b c d e f g')).toMatchObject({ accepted: false });
     expect(ai.calls).toEqual([]);
+  });
+
+  it('a passed judgement reports isPhrase, so the icon shows even for a repeat that is not counted', async () => {
+    const store = createStore(memoryArea({ aiConfig: cfg }), undefined, fakeAi().port);
+    expect(await capture(store, 'give up', 1_000_000)).toMatchObject({ accepted: true, isPhrase: true });
+    expect(await capture(store, 'give up', 1_100_000)).toMatchObject({ accepted: false, isPhrase: true, aiConfigured: true });
+  });
+
+  it('a text that is not a phrase reports isPhrase false, so no icon shows', async () => {
+    const store = createStore(memoryArea({ aiConfig: cfg }), undefined, fakeAi({ ok: true, isPhrase: false, confidence: 0.2 }).port);
+    expect(await capture(store, 'red car')).toMatchObject({ accepted: false, isPhrase: false });
+  });
+
+  it('a failed judgement reports no phrase, so no icon shows', async () => {
+    const store = createStore(memoryArea({ aiConfig: cfg }), undefined, fakeAi({ ok: false, reason: 'timeout', message: 'x' }).port);
+    const r = await capture(store, 'give up');
+    expect(r.isPhrase).toBeFalsy();
   });
 
   it('a repeat of the same phrase on the same page within 5 minutes is not counted again', async () => {

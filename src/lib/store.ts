@@ -147,7 +147,7 @@ export function createStore(area: Area, onSaved?: (n: number) => void, ai: AiPor
         phraseInflight.set(flightKey, pending);
       }
       const r = await pending;
-      if (!r.ok) return { accepted: false, becameSaved: false, aiConfigured: true };
+      if (!r.ok) return { accepted: false, becameSaved: false, aiConfigured: true, isPhrase: false };
       check = { isPhrase: r.isPhrase, confidence: r.confidence, checkedAt: new Date().toISOString() };
     }
 
@@ -160,12 +160,12 @@ export function createStore(area: Area, onSaved?: (n: number) => void, ai: AiPor
       const isPhrase = verdict.isPhrase && verdict.confidence >= PHRASE_THRESHOLD;
       if (!isPhrase) {
         if (checks !== phraseChecks) await area.set({ phraseChecks: checks });
-        return { accepted: false, becameSaved: false, aiConfigured: true };
+        return { accepted: false, becameSaved: false, aiConfigured: true, isPhrase: false };
       }
       const r = applySelection(words, recent, { ...ev, word: key, kind: 'phrase' });
       if (r.accepted) await saveWords(r.words, { recent: r.recent, phraseChecks: checks });
       else if (checks !== phraseChecks) await area.set({ phraseChecks: checks });
-      return { accepted: r.accepted, becameSaved: r.becameSaved, entry: r.entry, aiConfigured: true };
+      return { accepted: r.accepted, becameSaved: r.becameSaved, entry: r.entry, aiConfigured: true, isPhrase: true };
     });
   }
 

@@ -41,5 +41,8 @@ export type Msg =
   | { type: 'testAi'; config: AiConfig }
   | { type: 'lookup'; word: string; sentence?: string; regenerate?: boolean }
   | { type: 'capturePhrase'; payload: SelectionEvent };
-/** `aiConfigured` tells the content script whether to show the lookup icon. */
-export interface CaptureResult { accepted: boolean; becameSaved: boolean; entry?: WordEntry; aiConfigured: boolean }
+/**
+ * `aiConfigured` tells the content script whether to show the lookup icon.
+ * `isPhrase` is set on a phrase capture whose judgement passed, counted or not, so the icon shows for it.
+ */
+export interface CaptureResult { accepted: boolean; becameSaved: boolean; entry?: WordEntry; aiConfigured: boolean; isPhrase?: boolean }
