@@ -74,6 +74,13 @@ const LookupSchema = z.object({
   phrases: z.array(z.string()),
   examples: z.array(z.object({ en: z.string(), translation: z.string() })),
 });
+/**
+ * The gateway does not always receive the schema as a response format, so the prompt names every key.
+ * Without this, models answer in their own shape and validation fails.
+ */
+const LOOKUP_SHAPE = 'Reply with only a JSON object with exactly these keys: "definitions" (array of strings), "collocations" (array of strings), "phrases" (array of strings), "examples" (array of {"en": string, "translation": string}). Use an empty array when there is nothing to list.';
+const LOOKUP_SHAPE_WITH_MEANING = `${LOOKUP_SHAPE} Also add the key "meaning" (string): the word's meaning in the given sentence.`;
+
 const LookupWithMeaningSchema = LookupSchema.extend({ meaning: z.string() });
 const MeaningSchema = z.object({ meaning: z.string() });
 
@@ -95,7 +102,7 @@ export async function lookupWord(
     const { output } = await generateText({
       model: opts.model ?? createLanguageModel(config),
       output: Output.object({ schema }),
-      system: `You are an English dictionary. Explain the word the user gives you. Write definitions and example translations in ${language}. Keep each item short.`,
+      system: `You are an English dictionary. Explain the word the user gives you. Write definitions and example translations in ${language}. Keep each item short. ${opts.sentence ? LOOKUP_SHAPE_WITH_MEANING : LOOKUP_SHAPE}`,
       prompt: opts.sentence ? `Word: ${word}\nSentence: ${opts.sentence}\nAlso give the meaning of the word as used in this sentence.` : word,
       maxRetries: 0,
       abortSignal: AbortSignal.timeout(AI_TIMEOUT_MS),
@@ -114,7 +121,7 @@ export async function meaningInSentence(config: AiConfig, word: string, sentence
     const { output } = await generateText({
       model: model ?? createLanguageModel(config),
       output: Output.object({ schema: MeaningSchema }),
-      system: `Explain what the English word means in the sentence the user gives you. Answer in ${language}, in one short phrase.`,
+      system: `Explain what the English word means in the sentence the user gives you. Answer in ${language}, in one short phrase. Reply with only a JSON object of this shape: {"meaning": string}.`,
       prompt: `Word: ${word}\nSentence: ${sentence}`,
       maxRetries: 0,
       abortSignal: AbortSignal.timeout(AI_TIMEOUT_MS),
@@ -139,7 +146,7 @@ export async function judgePhrase(config: AiConfig, text: string, model?: Langua
     const { output } = await generateText({
       model: model ?? createLanguageModel(config),
       output: Output.object({ schema: PhraseSchema }),
-      system: 'Decide whether the English text is a fixed expression that a learner should memorize as one unit: a phrasal verb, idiom, or fixed collocation. Ordinary word sequences are not. Give your confidence from 0 to 1.',
+      system: 'Decide whether the English text is a fixed expression that a learner should memorize as one unit: a phrasal verb, idiom, or fixed collocation. Ordinary word sequences are not. Give your confidence from 0 to 1. Reply with only a JSON object of this shape: {"isPhrase": boolean, "confidence": number}.',
       prompt: text,
       maxRetries: 0,
       abortSignal: AbortSignal.timeout(AI_TIMEOUT_MS),

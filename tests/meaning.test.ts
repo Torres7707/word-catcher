@@ -1,5 +1,5 @@
 import { MockLanguageModelV3 } from 'ai/test';
-import { DEFAULT_AI_CONFIG, lookupWord, meaningInSentence } from '../src/lib/ai';
+import { DEFAULT_AI_CONFIG, judgePhrase, lookupWord, meaningInSentence } from '../src/lib/ai';
 import { createStore, type Area, type AiPort } from '../src/lib/store';
 import type { AiConfig, AiFailure, AiLookupResult, AiMeaningResult, Lookup, SelectionEvent, Words } from '../src/lib/types';
 
@@ -194,5 +194,46 @@ describe('sentence meaning AI adapter', () => {
   it('an answer in the wrong shape gives a readable reason', async () => {
     const r = await meaningInSentence(cfg, 'serendipity', 'A lucky find.', model('{"meaning":42}'));
     expect(r).toMatchObject({ ok: false, reason: 'unknown', message: '返回的数据格式不符合要求' });
+  });
+});
+
+describe('prompts name the JSON keys the schema needs', () => {
+  /** A model that records the system prompt it was sent. */
+  function spy(text: string) {
+    const seen: string[] = [];
+    const model = new MockLanguageModelV3({
+      doGenerate: async (opts) => {
+        seen.push(opts.prompt.filter((m) => m.role === 'system').map((m) => m.content).join('\n'));
+        return {
+          content: [{ type: 'text', text }],
+          finishReason: { unified: 'stop', raw: 'stop' },
+          usage: { inputTokens: { total: 1, noCache: 1, cacheRead: undefined, cacheWrite: undefined }, outputTokens: { total: 1, text: 1, reasoning: undefined } },
+          warnings: [],
+        };
+      },
+    });
+    return { model, seen };
+  }
+
+  it('a word lookup lists definitions, collocations, phrases and examples', async () => {
+    const { model, seen } = spy(JSON.stringify(general));
+    await lookupWord(cfg, 'serendipity', { model });
+    for (const key of ['definitions', 'collocations', 'phrases', 'examples', '"en"', '"translation"']) expect(seen[0]).toContain(key);
+    expect(seen[0]).not.toContain('"meaning"');
+  });
+  it('a lookup in a sentence also names the meaning key', async () => {
+    const { model, seen } = spy(JSON.stringify({ ...general, meaning: '意思' }));
+    await lookupWord(cfg, 'serendipity', { sentence: 'A lucky find.', model });
+    expect(seen[0]).toContain('definitions');
+    expect(seen[0]).toContain('"meaning"');
+  });
+  it('the meaning and phrase requests name their keys', async () => {
+    const m = spy('{"meaning":"意思"}');
+    await meaningInSentence(cfg, 'bank', 'The river bank.', m.model);
+    expect(m.seen[0]).toContain('"meaning"');
+    const p = spy('{"isPhrase":true,"confidence":0.9}');
+    await judgePhrase(cfg, 'give up', p.model);
+    expect(p.seen[0]).toContain('isPhrase');
+    expect(p.seen[0]).toContain('confidence');
   });
 });
