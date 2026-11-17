@@ -237,3 +237,34 @@ describe('prompts name the JSON keys the schema needs', () => {
     expect(p.seen[0]).toContain('confidence');
   });
 });
+
+describe('AI calls ask for low reasoning effort (latency)', () => {
+  function recorder(text: string) {
+    const seen: unknown[] = [];
+    const model = new MockLanguageModelV3({
+      doGenerate: async (opts) => {
+        seen.push(opts.providerOptions);
+        return {
+          content: [{ type: 'text', text }],
+          finishReason: { unified: 'stop', raw: 'stop' },
+          usage: { inputTokens: { total: 1, noCache: 1, cacheRead: undefined, cacheWrite: undefined }, outputTokens: { total: 1, text: 1, reasoning: undefined } },
+          warnings: [],
+        };
+      },
+    });
+    return { model, seen };
+  }
+  const low = { 'word-catcher': { reasoningEffort: 'low' } };
+
+  it('lookup, meaning and phrase judgement all send reasoningEffort low', async () => {
+    const a = recorder(JSON.stringify(general));
+    await lookupWord(cfg, 'serendipity', { model: a.model });
+    const b = recorder('{"meaning":"意思"}');
+    await meaningInSentence(cfg, 'bank', 'The river bank.', b.model);
+    const c = recorder('{"isPhrase":true,"confidence":0.9}');
+    await judgePhrase(cfg, 'give up', c.model);
+    expect(a.seen[0]).toEqual(low);
+    expect(b.seen[0]).toEqual(low);
+    expect(c.seen[0]).toEqual(low);
+  });
+});

@@ -68,6 +68,13 @@ export async function testConnection(config: AiConfig, model?: LanguageModel): P
   }
 }
 
+/**
+ * The gateway models reason before they answer. On a long lookup that reasoning took 10 to 60 seconds and hit the
+ * timeout. These tasks are short and structured, so ask for low effort. Standard OpenAI-compatible servers read this as
+ * `reasoning_effort`.
+ */
+const FAST_OPTIONS = { 'word-catcher': { reasoningEffort: 'low' } } as const;
+
 const LookupSchema = z.object({
   definitions: z.array(z.string()),
   collocations: z.array(z.string()),
@@ -105,6 +112,7 @@ export async function lookupWord(
       system: `You are an English dictionary. Explain the word the user gives you. Write definitions and example translations in ${language}. Keep each item short. ${opts.sentence ? LOOKUP_SHAPE_WITH_MEANING : LOOKUP_SHAPE}`,
       prompt: opts.sentence ? `Word: ${word}\nSentence: ${opts.sentence}\nAlso give the meaning of the word as used in this sentence.` : word,
       maxRetries: 0,
+      providerOptions: FAST_OPTIONS,
       abortSignal: AbortSignal.timeout(AI_TIMEOUT_MS),
     });
     const { meaning, ...rest } = output as z.infer<typeof LookupWithMeaningSchema>;
@@ -124,6 +132,7 @@ export async function meaningInSentence(config: AiConfig, word: string, sentence
       system: `Explain what the English word means in the sentence the user gives you. Answer in ${language}, in one short phrase. Reply with only a JSON object of this shape: {"meaning": string}.`,
       prompt: `Word: ${word}\nSentence: ${sentence}`,
       maxRetries: 0,
+      providerOptions: FAST_OPTIONS,
       abortSignal: AbortSignal.timeout(AI_TIMEOUT_MS),
     });
     return { ok: true, meaning: output.meaning };
@@ -149,6 +158,7 @@ export async function judgePhrase(config: AiConfig, text: string, model?: Langua
       system: 'Decide whether the English text is a fixed expression that a learner should memorize as one unit: a phrasal verb, idiom, or fixed collocation. Ordinary word sequences are not. Give your confidence from 0 to 1. Reply with only a JSON object of this shape: {"isPhrase": boolean, "confidence": number}.',
       prompt: text,
       maxRetries: 0,
+      providerOptions: FAST_OPTIONS,
       abortSignal: AbortSignal.timeout(AI_TIMEOUT_MS),
     });
     return { ok: true, isPhrase: output.isPhrase, confidence: output.confidence };
