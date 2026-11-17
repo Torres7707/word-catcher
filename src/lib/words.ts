@@ -1,4 +1,4 @@
-import type { Context, RecentMap, SelectionEvent, WordEntry, Words } from './types';
+import type { Context, Lookup, RecentMap, SelectionEvent, WordEntry, Words } from './types';
 
 export const MAX_CONTEXTS = 20;
 export const DEDUP_MS = 5 * 60 * 1000;
@@ -77,6 +77,7 @@ export function applySelection(words: Words, recent: RecentMap, ev: SelectionEve
     lastSeen: date,
     contexts: [...(prev?.contexts ?? []), ctx].slice(-MAX_CONTEXTS),
     status,
+    ...(prev?.lookup ? { lookup: prev.lookup } : {}),
   };
   return {
     words: { ...words, [ev.word]: entry },
@@ -88,6 +89,13 @@ export function applySelection(words: Words, recent: RecentMap, ev: SelectionEve
 }
 
 const rank = { seen: 0, saved: 1, mastered: 2 } as const;
+
+/** The lookup generated later wins. A missing lookup loses to any lookup. */
+export function newerLookup(a?: Lookup, b?: Lookup): Lookup | undefined {
+  if (!a) return b;
+  if (!b) return a;
+  return b.generatedAt > a.generatedAt ? b : a;
+}
 
 /**
  * Merge imported data into existing.
@@ -114,11 +122,13 @@ export function mergeWords(base: Words, incoming: Words): Words {
     if (status === 'seen' && count >= 2) status = 'saved';
     const dates = [cur?.firstSeen, inc.firstSeen].filter(Boolean) as string[];
     const lasts = [cur?.lastSeen, inc.lastSeen].filter(Boolean) as string[];
+    const lookup = newerLookup(cur?.lookup, inc.lookup);
     out[w] = {
       word: w, kind: cur?.kind === 'phrase' || inc.kind === 'phrase' ? 'phrase' : 'word', count, status,
       firstSeen: dates.sort()[0] ?? new Date().toISOString(),
       lastSeen: lasts.sort().at(-1) ?? new Date().toISOString(),
       contexts: contexts.slice(-MAX_CONTEXTS),
+      ...(lookup ? { lookup } : {}),
     };
   }
   return out;

@@ -88,7 +88,10 @@ describe('store testAi message', () => {
   const area: Area = { get: async () => ({}), set: async () => {} };
   it('passes the unsaved config to the AI port and returns its result', async () => {
     const seen: AiConfig[] = [];
-    const fake: AiPort = { test: async (c): Promise<AiTestResult> => { seen.push(c); return { ok: false, reason: 'key', message: 'bad key' }; } };
+    const fake: AiPort = {
+      test: async (c): Promise<AiTestResult> => { seen.push(c); return { ok: false, reason: 'key', message: 'bad key' }; },
+      lookup: async () => ({ ok: false, reason: 'unknown', message: 'unused' }),
+    };
     const store = createStore(area, undefined, fake);
     const r = await store.handle({ type: 'testAi', config: cfg });
     expect(seen).toEqual([cfg]);

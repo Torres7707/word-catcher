@@ -1,5 +1,6 @@
 import type { CaptureResult, Settings } from './lib/types';
 import { acceptSelection, cleanUrl, extractSentence } from './lib/words';
+import { initLookupUi, showIcon } from './content/lookup-ui';
 
 function inEditable(node: Node | null): boolean {
   const el = node instanceof Element ? node : node?.parentElement;
@@ -37,7 +38,10 @@ function onSelectionEnd() {
   if (key === lastKey) return;
   lastKey = key;
   const payload = { word, sentence: sentenceFor(sel, word), url: cleanUrl(location.href), time: Date.now() };
+  const rect = sel.getRangeAt(0).getBoundingClientRect();
   chrome.runtime.sendMessage({ type: 'capture', payload }).then(async (r: CaptureResult) => {
+    // The icon shows for every valid selection once AI is set up, including repeats that do not count.
+    if (r?.aiConfigured) showIcon(word, rect);
     if (!r?.becameSaved) return;
     const { settings } = await chrome.storage.local.get('settings');
     if ((settings as Settings | undefined)?.toast === false) return;
@@ -58,3 +62,4 @@ function toast(text: string) {
 
 document.addEventListener('mouseup', () => setTimeout(onSelectionEnd, 0), true);
 document.addEventListener('keyup', (e) => { if (e.shiftKey || e.key === 'Shift') setTimeout(onSelectionEnd, 0); }, true);
+initLookupUi();

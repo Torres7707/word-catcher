@@ -1,9 +1,14 @@
 export type Status = 'seen' | 'saved' | 'mastered';
 export type EntryKind = 'word' | 'phrase';
 export interface Context { sentence: string; url: string; date: string }
+export interface Example { en: string; translation: string }
+/** AI lookup result for a word, cached on its entry until regenerated. */
+export interface Lookup {
+  definitions: string[]; collocations: string[]; phrases: string[]; examples: Example[]; generatedAt: string;
+}
 export interface WordEntry {
   word: string; kind: EntryKind; count: number; firstSeen: string; lastSeen: string;
-  contexts: Context[]; status: Status;
+  contexts: Context[]; status: Status; lookup?: Lookup;
 }
 export type Words = Record<string, WordEntry>;
 export interface Settings { toast: boolean }
@@ -15,6 +20,11 @@ export interface SelectionEvent { word: string; sentence: string; url: string; t
 export interface AiConfig { baseUrl: string; apiKey: string; model: string; language: string }
 export type AiFailure = 'address' | 'key' | 'model' | 'timeout' | 'unknown';
 export type AiTestResult = { ok: true } | { ok: false; reason: AiFailure; message: string };
+export type AiLookupResult = { ok: true; lookup: Lookup } | { ok: false; reason: AiFailure; message: string };
+/** What the page card receives. `unconfigured` means no AI config is saved yet. */
+export type LookupReply =
+  | { ok: true; lookup: Lookup; count?: number }
+  | { ok: false; reason: AiFailure | 'unconfigured'; message: string };
 
 export type Msg =
   | { type: 'capture'; payload: SelectionEvent }
@@ -22,5 +32,7 @@ export type Msg =
   | { type: 'delete'; word: string }
   | { type: 'import'; words: Words }
   | { type: 'clear' }
-  | { type: 'testAi'; config: AiConfig };
-export interface CaptureResult { accepted: boolean; becameSaved: boolean; entry?: WordEntry }
+  | { type: 'testAi'; config: AiConfig }
+  | { type: 'lookup'; word: string };
+/** `aiConfigured` tells the content script whether to show the lookup icon. */
+export interface CaptureResult { accepted: boolean; becameSaved: boolean; entry?: WordEntry; aiConfigured: boolean }

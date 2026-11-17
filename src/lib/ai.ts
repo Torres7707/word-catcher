@@ -1,6 +1,7 @@
-import { APICallError, generateText, type LanguageModel } from 'ai';
+import { APICallError, Output, generateText, type LanguageModel } from 'ai';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
-import type { AiConfig, AiFailure, AiTestResult } from './types';
+import { z } from 'zod';
+import type { AiConfig, AiFailure, AiLookupResult, AiTestResult } from './types';
 
 export const DEFAULT_BASE_URL = 'http://127.0.0.1:3425/v1';
 export const DEFAULT_AI_CONFIG: AiConfig = { baseUrl: DEFAULT_BASE_URL, apiKey: '', model: '', language: 'zh-CN' };
@@ -51,16 +52,46 @@ export function createLanguageModel(config: AiConfig): LanguageModel {
  * Sends a one-token request to check the address, key and model.
  * Retries are off so each failure maps to one reason.
  */
-export async function testConnection(config: AiConfig, model: LanguageModel = createLanguageModel(config)): Promise<AiTestResult> {
+export async function testConnection(config: AiConfig, model?: LanguageModel): Promise<AiTestResult> {
   try {
     await generateText({
-      model,
+      model: model ?? createLanguageModel(config),
       prompt: 'Reply with OK.',
       maxOutputTokens: 8,
       maxRetries: 0,
       abortSignal: AbortSignal.timeout(AI_TIMEOUT_MS),
     });
     return { ok: true };
+  } catch (err) {
+    return { ok: false, ...classifyAiError(err) };
+  }
+}
+
+const LookupSchema = z.object({
+  definitions: z.array(z.string()),
+  collocations: z.array(z.string()),
+  phrases: z.array(z.string()),
+  examples: z.array(z.object({ en: z.string(), translation: z.string() })),
+});
+
+const LANGUAGE_NAMES: Record<string, string> = { 'zh-CN': 'Simplified Chinese', 'zh-TW': 'Traditional Chinese', en: 'English' };
+
+/**
+ * Asks the model for the definitions, collocations, phrases and example sentences of one word.
+ * Only the word is sent. The page address and the surrounding sentence are not.
+ */
+export async function lookupWord(config: AiConfig, word: string, model?: LanguageModel): Promise<AiLookupResult> {
+  const language = LANGUAGE_NAMES[config.language] ?? LANGUAGE_NAMES['zh-CN'];
+  try {
+    const { output } = await generateText({
+      model: model ?? createLanguageModel(config),
+      output: Output.object({ schema: LookupSchema }),
+      system: `You are an English dictionary. Explain the word the user gives you. Write definitions and example translations in ${language}. Keep each item short.`,
+      prompt: word,
+      maxRetries: 0,
+      abortSignal: AbortSignal.timeout(AI_TIMEOUT_MS),
+    });
+    return { ok: true, lookup: { ...output, generatedAt: new Date().toISOString() } };
   } catch (err) {
     return { ok: false, ...classifyAiError(err) };
   }
