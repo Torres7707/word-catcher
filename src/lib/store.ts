@@ -1,15 +1,17 @@
-import type { AiConfig, AiLookupResult, AiTestResult, CaptureResult, LookupReply, Msg, RecentMap, Settings, WordEntry, Words } from './types';
-import { acceptSelection, applySelection, mergeWords, normalizeWords, savedCount } from './words';
-import { lookupWord, testConnection } from './ai';
+import type { AiConfig, AiLookupResult, AiPhraseResult, AiTestResult, CaptureResult, LookupReply, Msg, PhraseCheck, RecentMap, SelectionEvent, Settings, WordEntry, Words } from './types';
+import { acceptSelection, addPhraseCheck, applySelection, mergeWords, normalizeWords, PHRASE_THRESHOLD, phraseCandidate, savedCount } from './words';
+import { judgePhrase, lookupWord, testConnection } from './ai';
 
 /** The AI gateway seam. Production uses the AI SDK; tests pass a fake. */
 export interface AiPort {
   test(config: AiConfig): Promise<AiTestResult>;
   lookup(config: AiConfig, word: string): Promise<AiLookupResult>;
+  judgePhrase(config: AiConfig, text: string): Promise<AiPhraseResult>;
 }
 export const liveAiPort: AiPort = {
   test: (config) => testConnection(config),
   lookup: (config, word) => lookupWord(config, word),
+  judgePhrase: (config, text) => judgePhrase(config, text),
 };
 
 /** Minimal storage interface so tests can mock chrome.storage.local. */
@@ -32,11 +34,12 @@ export function createStore(area: Area, onSaved?: (n: number) => void, ai: AiPor
     return p;
   };
   const load = async () => {
-    const d = await area.get(['words', 'recent', 'aiConfig']);
+    const d = await area.get(['words', 'recent', 'aiConfig', 'phraseChecks']);
     return {
       words: normalizeWords((d.words as Record<string, unknown>) ?? {}),
       recent: (d.recent as RecentMap) ?? {},
       aiConfig: d.aiConfig as AiConfig | undefined,
+      phraseChecks: (d.phraseChecks as Record<string, PhraseCheck>) ?? {},
     };
   };
   const saveWords = async (words: Words, extra: Record<string, unknown> = {}) => {
@@ -81,10 +84,61 @@ export function createStore(area: Area, onSaved?: (n: number) => void, ai: AiPor
     });
   }
 
+  /** One judgement per phrase and config at a time, so repeated selections share one call. */
+  const phraseInflight = new Map<string, Promise<AiPhraseResult>>();
+
+  /**
+   * Judges a 2 to 6 word selection, caches the judgement, and counts it when the model is at least
+   * PHRASE_THRESHOLD sure it is a phrase. The AI call runs outside the storage chain.
+   * Words inside the phrase are not counted.
+   */
+  async function capturePhrase(ev: SelectionEvent): Promise<CaptureResult> {
+    const key = phraseCandidate(ev.word);
+    if (!key) return { accepted: false, becameSaved: false, aiConfigured: false };
+
+    const snap = await run(async () => {
+      const { aiConfig, phraseChecks } = await load();
+      return { aiConfig, cached: phraseChecks[key] as PhraseCheck | undefined };
+    });
+    if (!isConfigured(snap.aiConfig)) return { accepted: false, becameSaved: false, aiConfigured: false };
+    const cfg = snap.aiConfig!;
+
+    let check = snap.cached;
+    if (!check) {
+      const flightKey = JSON.stringify([cfg.baseUrl, cfg.model, cfg.language, key]);
+      let pending = phraseInflight.get(flightKey);
+      if (!pending) {
+        pending = ai.judgePhrase(cfg, key).finally(() => phraseInflight.delete(flightKey));
+        phraseInflight.set(flightKey, pending);
+      }
+      const r = await pending;
+      if (!r.ok) return { accepted: false, becameSaved: false, aiConfigured: true };
+      check = { isPhrase: r.isPhrase, confidence: r.confidence, checkedAt: new Date().toISOString() };
+    }
+
+    return run(async (): Promise<CaptureResult> => {
+      const { words, recent, phraseChecks } = await load();
+      // A verdict stored by another selection in the meantime wins, so the count and the cache agree.
+      const known = phraseChecks[key];
+      const verdict = known ?? check!;
+      const checks = known ? phraseChecks : addPhraseCheck(phraseChecks, key, verdict);
+      const isPhrase = verdict.isPhrase && verdict.confidence >= PHRASE_THRESHOLD;
+      if (!isPhrase) {
+        if (checks !== phraseChecks) await area.set({ phraseChecks: checks });
+        return { accepted: false, becameSaved: false, aiConfigured: true };
+      }
+      const r = applySelection(words, recent, { ...ev, word: key, kind: 'phrase' });
+      if (r.accepted) await saveWords(r.words, { recent: r.recent, phraseChecks: checks });
+      else if (checks !== phraseChecks) await area.set({ phraseChecks: checks });
+      return { accepted: r.accepted, becameSaved: r.becameSaved, entry: r.entry, aiConfigured: true };
+    });
+  }
+
   return {
     handle(msg: Msg): Promise<CaptureResult | { ok: true } | AiTestResult | LookupReply> {
       if (msg.type === 'testAi') return ai.test(msg.config);
       if (msg.type === 'lookup') return lookup(msg.word);
+      if (msg.type === 'capturePhrase') return capturePhrase(msg.payload);
       return run(async () => {
         const { words, recent, aiConfig } = await load();
         switch (msg.type) {

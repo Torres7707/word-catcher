@@ -1,8 +1,17 @@
-import type { Context, Lookup, RecentMap, SelectionEvent, WordEntry, Words } from './types';
+import type { Context, Lookup, PhraseCheck, RecentMap, SelectionEvent, WordEntry, Words } from './types';
 
 export const MAX_CONTEXTS = 20;
 export const DEDUP_MS = 5 * 60 * 1000;
 export const MAX_SENTENCE = 300;
+/** A phrase candidate needs at least this confidence from the model to be counted. Boundary is inclusive. */
+export const PHRASE_THRESHOLD = 0.8;
+const PHRASE_MIN_WORDS = 2;
+const PHRASE_MAX_WORDS = 6;
+const PHRASE_MAX_LENGTH = 60;
+/** Cached phrase judgements kept on the device. The oldest are dropped past this many. */
+export const MAX_PHRASE_CHECKS = 2000;
+/** One-letter words allowed inside a phrase, as in "a lot" or "as I see it". */
+const PHRASE_SHORT_WORDS = new Set(['a', 'i']);
 
 const WORD_RE = /^[a-z]+(?:['’-][a-z]+)*$/;
 
@@ -21,6 +30,29 @@ export function acceptSelection(raw: string): string | null {
   const w = normalizeWord(raw);
   if (w.length < 2 || w.length > 30) return null;
   return WORD_RE.test(w) ? w : null;
+}
+
+/**
+ * Returns the phrase key for a selection of 2 to 6 English words (max 60 characters), else null.
+ * Each word must pass the single-word rule. Case and extra spaces are dropped; forms are not changed.
+ */
+export function phraseCandidate(raw: string): string | null {
+  const text = raw.trim().replace(/^[\p{P}\p{S}]+|[\p{P}\p{S}]+$/gu, '').replace(/’/g, "'").replace(/\s+/g, ' ').toLowerCase();
+  if (!text || text.length > PHRASE_MAX_LENGTH) return null;
+  const tokens = text.split(' ');
+  if (tokens.length < PHRASE_MIN_WORDS || tokens.length > PHRASE_MAX_WORDS) return null;
+  // A token must already be the form the single-word rule would keep, so "give, up" is not a phrase.
+  return tokens.every((t) => PHRASE_SHORT_WORDS.has(t) || acceptSelection(t) === t) ? text : null;
+}
+
+/** Adds one phrase judgement and drops the oldest ones past MAX_PHRASE_CHECKS. */
+export function addPhraseCheck(checks: Record<string, PhraseCheck>, key: string, check: PhraseCheck): Record<string, PhraseCheck> {
+  const next = { ...checks, [key]: check };
+  const keys = Object.keys(next);
+  if (keys.length <= MAX_PHRASE_CHECKS) return next;
+  keys.sort((a, b) => next[a].checkedAt.localeCompare(next[b].checkedAt));
+  for (const k of keys.slice(0, keys.length - MAX_PHRASE_CHECKS)) delete next[k];
+  return next;
 }
 
 /** origin + pathname, no query/hash. */
@@ -67,11 +99,12 @@ export function applySelection(words: Words, recent: RecentMap, ev: SelectionEve
   const prev = words[ev.word];
   const ctx: Context = { sentence: clipSentence(ev.sentence), url: ev.url, date };
   const count = (prev?.count ?? 0) + 1;
+  const kind = prev?.kind ?? ev.kind ?? 'word';
   const prevStatus = prev?.status ?? 'seen';
   const status = prevStatus === 'mastered' ? 'mastered' : count >= 2 ? 'saved' : prevStatus;
   const entry: WordEntry = {
     word: ev.word,
-    kind: prev?.kind ?? 'word',
+    kind,
     count,
     firstSeen: prev?.firstSeen ?? date,
     lastSeen: date,
@@ -108,7 +141,7 @@ export function newerLookup(a?: Lookup, b?: Lookup): Lookup | undefined {
 export function mergeWords(base: Words, incoming: Words): Words {
   const out: Words = { ...base };
   for (const [key, inc] of Object.entries(incoming)) {
-    const w = acceptSelection(inc?.word ?? key);
+    const w = inc?.kind === 'phrase' ? phraseCandidate(inc.word ?? key) : acceptSelection(inc?.word ?? key);
     if (!w || typeof inc.count !== 'number') continue;
     const cur = out[w];
     const all = [...(cur?.contexts ?? []), ...(Array.isArray(inc.contexts) ? inc.contexts : [])];

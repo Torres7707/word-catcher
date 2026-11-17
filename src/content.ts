@@ -1,5 +1,5 @@
 import type { CaptureResult, Settings } from './lib/types';
-import { acceptSelection, cleanUrl, extractSentence } from './lib/words';
+import { acceptSelection, cleanUrl, extractSentence, phraseCandidate } from './lib/words';
 import { initLookupUi, showIcon } from './content/lookup-ui';
 
 function inEditable(node: Node | null): boolean {
@@ -31,21 +31,26 @@ function onSelectionEnd() {
   const sel = window.getSelection();
   if (!sel || sel.rangeCount === 0 || sel.isCollapsed) { lastKey = ''; return; }
   if (inEditable(sel.anchorNode) || inEditable(document.activeElement)) return;
-  const word = acceptSelection(sel.toString());
-  if (!word) return;
+  const text = sel.toString();
+  const word = acceptSelection(text);
+  const phrase = word ? null : phraseCandidate(text);
+  if (!word && !phrase) return;
+  const target = (word ?? phrase)!;
   // mouseup + keyup can both fire for one selection; only send once per distinct selection
-  const key = word + '|' + sel.anchorOffset + '|' + sel.focusOffset;
+  const key = target + '|' + sel.anchorOffset + '|' + sel.focusOffset;
   if (key === lastKey) return;
   lastKey = key;
-  const payload = { word, sentence: sentenceFor(sel, word), url: cleanUrl(location.href), time: Date.now() };
+  const payload = { word: target, sentence: sentenceFor(sel, target), url: cleanUrl(location.href), time: Date.now() };
   const rect = sel.getRangeAt(0).getBoundingClientRect();
-  chrome.runtime.sendMessage({ type: 'capture', payload }).then(async (r: CaptureResult) => {
-    // The icon shows for every valid selection once AI is set up, including repeats that do not count.
-    if (r?.aiConfigured) showIcon(word, rect);
+  // Phrases are judged by AI first. The lookup icon for phrases comes later (ticket #8).
+  const msg = word ? { type: 'capture', payload } : { type: 'capturePhrase', payload };
+  chrome.runtime.sendMessage(msg).then(async (r: CaptureResult) => {
+    // The icon shows for every valid word once AI is set up, including repeats that do not count.
+    if (word && r?.aiConfigured) showIcon(word, rect);
     if (!r?.becameSaved) return;
     const { settings } = await chrome.storage.local.get('settings');
     if ((settings as Settings | undefined)?.toast === false) return;
-    toast(`✓ 已加入生词本: ${word}`);
+    toast(`✓ 已加入生词本: ${target}`);
   }).catch(() => { /* extension reloaded; ignore */ });
 }
 

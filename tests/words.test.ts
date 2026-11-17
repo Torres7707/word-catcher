@@ -156,9 +156,9 @@ describe('entry kind and data format (ticket #2)', () => {
     expect(back).toEqual(words);
   });
   it('mergeWords keeps phrase kind when either side is a phrase', () => {
-    const phrase = { word: 'alpha', kind: 'phrase' as const, count: 2, status: 'seen' as const, firstSeen: '2026-01-02T00:00:00.000Z', lastSeen: '2026-01-05T00:00:00.000Z', contexts: [] };
-    expect(mergeWords({}, { alpha: phrase }).alpha.kind).toBe('phrase');
-    expect(mergeWords({ alpha: phrase }, normalizeWords(legacy)).alpha.kind).toBe('phrase');
+    const phrase = { word: 'give up', kind: 'phrase' as const, count: 2, status: 'seen' as const, firstSeen: '2026-01-02T00:00:00.000Z', lastSeen: '2026-01-05T00:00:00.000Z', contexts: [] };
+    expect(mergeWords({}, { 'give up': phrase })['give up'].kind).toBe('phrase');
+    expect(mergeWords({ 'give up': phrase }, normalizeWords(legacy))['give up'].kind).toBe('phrase');
   });
   it('parseImport reads a bare map whose key is the real word "words"', () => {
     const bare = { words: { word: 'words', count: 3, status: 'seen', firstSeen: '2026-01-02T00:00:00.000Z', lastSeen: '2026-01-02T00:00:00.000Z', contexts: [] } };

@@ -14,7 +14,10 @@ export type Words = Record<string, WordEntry>;
 export interface Settings { toast: boolean }
 /** Last capture per word, for the anti-misclick window: key `${word}|${url}` -> epoch ms */
 export type RecentMap = Record<string, number>;
-export interface SelectionEvent { word: string; sentence: string; url: string; time: number }
+export interface SelectionEvent { word: string; sentence: string; url: string; time: number; kind?: EntryKind }
+/** Model judgement on whether a 2 to 6 word selection is a fixed phrase. Cached per phrase, negatives included. */
+export interface PhraseCheck { isPhrase: boolean; confidence: number; checkedAt: string }
+export type AiPhraseResult = { ok: true; isPhrase: boolean; confidence: number } | { ok: false; reason: AiFailure; message: string };
 
 /** AI gateway settings. Stored under its own key, never in the exported word data. */
 export interface AiConfig { baseUrl: string; apiKey: string; model: string; language: string }
@@ -33,6 +36,7 @@ export type Msg =
   | { type: 'import'; words: Words }
   | { type: 'clear' }
   | { type: 'testAi'; config: AiConfig }
-  | { type: 'lookup'; word: string };
+  | { type: 'lookup'; word: string }
+  | { type: 'capturePhrase'; payload: SelectionEvent };
 /** `aiConfigured` tells the content script whether to show the lookup icon. */
 export interface CaptureResult { accepted: boolean; becameSaved: boolean; entry?: WordEntry; aiConfigured: boolean }

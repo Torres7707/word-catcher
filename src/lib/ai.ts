@@ -1,7 +1,7 @@
 import { APICallError, Output, generateText, type LanguageModel } from 'ai';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import { z } from 'zod';
-import type { AiConfig, AiFailure, AiLookupResult, AiTestResult } from './types';
+import type { AiConfig, AiFailure, AiLookupResult, AiPhraseResult, AiTestResult } from './types';
 
 export const DEFAULT_BASE_URL = 'http://127.0.0.1:3425/v1';
 export const DEFAULT_AI_CONFIG: AiConfig = { baseUrl: DEFAULT_BASE_URL, apiKey: '', model: '', language: 'zh-CN' };
@@ -92,6 +92,31 @@ export async function lookupWord(config: AiConfig, word: string, model?: Languag
       abortSignal: AbortSignal.timeout(AI_TIMEOUT_MS),
     });
     return { ok: true, lookup: { ...output, generatedAt: new Date().toISOString() } };
+  } catch (err) {
+    return { ok: false, ...classifyAiError(err) };
+  }
+}
+
+const PhraseSchema = z.object({
+  isPhrase: z.boolean(),
+  confidence: z.number().min(0).max(1),
+});
+
+/**
+ * Asks whether a 2 to 6 word selection is a fixed expression (phrasal verb, idiom, collocation)
+ * and how sure the model is. Only the selected text is sent.
+ */
+export async function judgePhrase(config: AiConfig, text: string, model?: LanguageModel): Promise<AiPhraseResult> {
+  try {
+    const { output } = await generateText({
+      model: model ?? createLanguageModel(config),
+      output: Output.object({ schema: PhraseSchema }),
+      system: 'Decide whether the English text is a fixed expression that a learner should memorize as one unit: a phrasal verb, idiom, or fixed collocation. Ordinary word sequences are not. Give your confidence from 0 to 1.',
+      prompt: text,
+      maxRetries: 0,
+      abortSignal: AbortSignal.timeout(AI_TIMEOUT_MS),
+    });
+    return { ok: true, isPhrase: output.isPhrase, confidence: output.confidence };
   } catch (err) {
     return { ok: false, ...classifyAiError(err) };
   }

@@ -28,6 +28,7 @@ function fakeAi(result: AiLookupResult | ((word: string) => Promise<AiLookupResu
   const port: AiPort = {
     test: async () => ({ ok: true }),
     lookup: async (_c, word) => { calls.push(word); return typeof result === 'function' ? result(word) : result; },
+    judgePhrase: async () => ({ ok: false, reason: 'unknown', message: 'unused' }),
   };
   return { port, calls };
 }
