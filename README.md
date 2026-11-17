@@ -16,7 +16,7 @@
 - 配置 AI 后，划选旁出现查词图标，点开卡片显示原句中的意思、释义、搭配、短语、例句；可「重新生成」。
 - 扩展图标上的角标显示生词本数量。
 - 弹窗：生词本 / 只划过一次 / 已掌握 三个标签页，搜索、统计、展开查看原句和来源链接，点击词条按需查词（已保存的查词结果直接显示，不再请求）；标记已掌握 / 移回生词本 / 删除；导出 Markdown、导出 JSON、导入 JSON、清空（需确认）。
-- 设置页：AI 网关地址、API Key、模型、释义语言，以及「测试连接」。
+- 设置页：AI 网关地址、API Key、模型、释义语言、请求超时（10–300 秒，默认 60 秒），以及「测试连接」。
 
 ## 构建（Node ≥ 20）
 
@@ -63,7 +63,7 @@ words: Record<string, {
 }>
 recent: Record<`${word}|${url}`, number>   // 防误触用，5 分钟后清理
 settings: { toast: boolean }               // 页面提示开关，默认开
-aiConfig: { baseUrl: string; apiKey: string; model: string; language: string } // AI 设置，不进入导出文件
+aiConfig: { baseUrl: string; apiKey: string; model: string; language: string; timeoutSeconds: number } // AI 设置，不进入导出文件
 phraseChecks: Record<string, { isPhrase: boolean; confidence: number; checkedAt: string }> // 短语判定缓存，最多 2000 条
 ```
 
