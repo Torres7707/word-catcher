@@ -18,14 +18,17 @@ const answer = {
   collocations: ['by serendipity'],
   phrases: [],
   examples: [{ en: 'A happy serendipity brought them together.', translation: '一次幸运的邂逅让他们走到了一起。' }],
+  meaning: '在这句里指读文档时的意外收获',
 };
 let gatewayCalls = 0;
+let gatewayFails = false;
 const gateway = http.createServer((req, res) => {
   const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': 'POST, OPTIONS' };
   if (req.method === 'OPTIONS') { res.writeHead(204, cors); res.end(); return; }
   let body = ''; req.on('data', (c) => { body += c; }); req.on('end', () => {
     if (req.url === '/v1/chat/completions') {
       gatewayCalls++;
+      if (gatewayFails) { res.writeHead(500, { ...cors, 'content-type': 'application/json' }); res.end('{"error":{"message":"boom"}}'); return; }
       res.writeHead(200, { ...cors, 'content-type': 'application/json' });
       res.end(JSON.stringify({
         id: 'x', object: 'chat.completion', created: 0, model: 'fake',
@@ -76,6 +79,21 @@ async function clickIcon() {
   });
   await page.mouse.click(c.x, c.y);
 }
+async function clickButton(label) {
+  const c = await page.evaluate((l) => {
+    const b = [...document.getElementById('word-catcher-lookup').shadowRoot.querySelectorAll('.btn')].find((x) => x.textContent === l);
+    if (!b) return null;
+    const r = b.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+  }, label);
+  if (!c) return false;
+  await page.mouse.click(c.x, c.y);
+  return true;
+}
+async function waitCalls(n, timeout = 8000) {
+  for (const end = Date.now() + timeout; gatewayCalls < n && Date.now() < end;) await new Promise((r) => setTimeout(r, 20));
+  await page.waitForTimeout(200);
+}
+const waitCard = (needle, timeout = 8000) => page.waitForFunction((n) => (document.getElementById('word-catcher-lookup')?.shadowRoot?.querySelector('.card')?.textContent ?? '').includes(n), needle, { timeout });
 const count = async () => (await sw.evaluate(() => chrome.storage.local.get('words'))).words?.serendipity?.count;
 
 // 1. First selection: icon appears, click opens the card with the answer and ×N.
@@ -88,6 +106,7 @@ let text = await cardText();
 check('card shows the definition and collocation', text.includes('意外发现珍奇事物') && text.includes('by serendipity'), text.slice(0, 80));
 check('card shows the example with its translation', text.includes('幸运的邂逅'));
 check('card shows the count ×1', text.includes('×1'));
+check('card shows the meaning in the original sentence', text.includes('原句中的意思') && text.includes('意外收获'));
 check('first open makes one gateway request', gatewayCalls === 1, `calls=${gatewayCalls}`);
 await page.screenshot({ path: 'e2e/out/lookup-card.png' });
 
@@ -109,11 +128,31 @@ check('reopen sends no new gateway request', gatewayCalls === 1, `calls=${gatewa
 const stored = await sw.evaluate(() => chrome.storage.local.get('words'));
 check('lookup is cached on the entry in storage', !!stored.words?.serendipity?.lookup?.definitions?.length);
 
-// 5. A click outside closes the card.
+// 5. 重新生成 sends a new request. A failure shows the reason and 重试, with no automatic retry.
+check('重新生成 button is shown', await clickButton('重新生成'));
+await waitCalls(2);
+await waitCard('释义');
+check('重新生成 makes one new gateway request', gatewayCalls === 2, `calls=${gatewayCalls}`);
+gatewayFails = true;
+await clickButton('重新生成');
+await waitCard('查词失败');
+await page.waitForTimeout(500);
+text = await cardText();
+check('a failure shows the reason and a 重试 button', text.includes('查词失败') && text.includes('重试'), text.slice(0, 80));
+check('a failure is not retried automatically', gatewayCalls === 3, `calls=${gatewayCalls}`);
+const kept = await sw.evaluate(() => chrome.storage.local.get('words'));
+check('a failed regenerate keeps the cached lookup', !!kept.words?.serendipity?.lookup?.definitions?.length);
+gatewayFails = false;
+await clickButton('重试');
+await waitCard('释义');
+await page.waitForTimeout(300);
+check('重试 succeeds once the gateway recovers', gatewayCalls === 4 && (await cardText()).includes('意外收获'), `calls=${gatewayCalls}`);
+
+// 6. A click outside closes the card.
 await page.mouse.click(5, 5);
 check('clicking outside closes the card', !(await hostExists()));
 
-// 6. Without a saved model there is no icon, and counting still works.
+// 7. Without a saved model there is no icon, and counting still works.
 await sw.evaluate(() => chrome.storage.local.set({ aiConfig: { baseUrl: 'http://127.0.0.1:3425/v1', apiKey: '', model: '', language: 'zh-CN' } }));
 await page.goto(`http://localhost:${PAGE_PORT}/doc2`); await page.waitForTimeout(800);
 await selectWord('serendipity');

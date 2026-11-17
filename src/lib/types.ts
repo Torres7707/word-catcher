@@ -9,6 +9,8 @@ export interface Lookup {
 export interface WordEntry {
   word: string; kind: EntryKind; count: number; firstSeen: string; lastSeen: string;
   contexts: Context[]; status: Status; lookup?: Lookup;
+  /** Meaning of the word in a sentence, keyed by the sentence text. Only sentences in `contexts` are kept. */
+  meanings?: Record<string, string>;
 }
 export type Words = Record<string, WordEntry>;
 export interface Settings { toast: boolean }
@@ -23,10 +25,11 @@ export type AiPhraseResult = { ok: true; isPhrase: boolean; confidence: number }
 export interface AiConfig { baseUrl: string; apiKey: string; model: string; language: string }
 export type AiFailure = 'address' | 'key' | 'model' | 'timeout' | 'unknown';
 export type AiTestResult = { ok: true } | { ok: false; reason: AiFailure; message: string };
-export type AiLookupResult = { ok: true; lookup: Lookup } | { ok: false; reason: AiFailure; message: string };
+export type AiLookupResult = { ok: true; lookup: Lookup; meaning?: string } | { ok: false; reason: AiFailure; message: string };
+export type AiMeaningResult = { ok: true; meaning: string } | { ok: false; reason: AiFailure; message: string };
 /** What the page card receives. `unconfigured` means no AI config is saved yet. */
 export type LookupReply =
-  | { ok: true; lookup: Lookup; count?: number }
+  | { ok: true; lookup: Lookup; meaning?: string; count?: number }
   | { ok: false; reason: AiFailure | 'unconfigured'; message: string };
 
 export type Msg =
@@ -36,7 +39,7 @@ export type Msg =
   | { type: 'import'; words: Words }
   | { type: 'clear' }
   | { type: 'testAi'; config: AiConfig }
-  | { type: 'lookup'; word: string }
+  | { type: 'lookup'; word: string; sentence?: string; regenerate?: boolean }
   | { type: 'capturePhrase'; payload: SelectionEvent };
 /** `aiConfigured` tells the content script whether to show the lookup icon. */
 export interface CaptureResult { accepted: boolean; becameSaved: boolean; entry?: WordEntry; aiConfigured: boolean }

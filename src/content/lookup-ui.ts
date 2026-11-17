@@ -18,6 +18,11 @@ h4 { margin: 10px 0 4px; font-size: 12px; color: #6b7280; font-weight: 600; }
 ul, ol { margin: 0; padding-left: 18px; }
 .ex-t { color: #6b7280; }
 .msg { color: #b91c1c; }
+.meaning { background: #eff6ff; border-radius: 6px; padding: 6px 8px; margin-top: 6px; }
+.actions { margin-top: 10px; text-align: right; }
+.btn { border: 1px solid #d1d5db; background: #fff; color: #374151; border-radius: 6px; padding: 2px 10px;
+  font: 12px/1.6 system-ui, sans-serif; cursor: pointer; }
+.btn:hover { background: #f3f4f6; }
 `;
 
 let host: HTMLElement | null = null;
@@ -66,8 +71,8 @@ function clampX(x: number): number {
   return Math.max(8, Math.min(x, window.innerWidth - CARD_WIDTH - 8));
 }
 
-/** Shows the lookup icon just below the end of a selection. */
-export function showIcon(word: string, rect: DOMRect) {
+/** Shows the lookup icon just below the end of a selection. `sentence` is the sentence the word was selected in. */
+export function showIcon(word: string, sentence: string, rect: DOMRect) {
   dismiss();
   const r = mount();
   const btn = el('button', 'icon', '查');
@@ -76,11 +81,12 @@ export function showIcon(word: string, rect: DOMRect) {
   const y = Math.min(rect.bottom + 4, window.innerHeight - ICON_SIZE - 8);
   btn.style.left = `${x}px`;
   btn.style.top = `${y}px`;
-  btn.addEventListener('click', (e) => { e.stopPropagation(); void openCard(word, x, y + ICON_SIZE + 4); });
+  btn.addEventListener('click', (e) => { e.stopPropagation(); void openCard(word, sentence, x, y + ICON_SIZE + 4); });
   r.append(btn);
 }
 
-async function openCard(word: string, x: number, y: number) {
+/** Asks the background for the lookup. AI is only called again when the user presses 重新生成 or 重试. */
+async function openCard(word: string, sentence: string, x: number, y: number, regenerate = false) {
   const id = ++seq;
   const r = mount();
   const card = el('div', 'card', '查词中…');
@@ -89,13 +95,14 @@ async function openCard(word: string, x: number, y: number) {
 
   let reply: LookupReply;
   try {
-    reply = (await chrome.runtime.sendMessage({ type: 'lookup', word })) as LookupReply;
+    reply = (await chrome.runtime.sendMessage({ type: 'lookup', word, sentence, regenerate })) as LookupReply;
   } catch {
     reply = { ok: false, reason: 'unknown', message: '扩展已重新加载，请刷新页面' };
   }
   if (id !== seq) return;
   if (!reply || !('ok' in reply)) reply = { ok: false, reason: 'unknown', message: '后台没有返回结果' };
-  renderCard(card, word, reply);
+  // 重试 repeats the same request; 重新生成 forces a fresh one.
+  renderCard(card, word, reply, regenerate, (again) => void openCard(word, sentence, x, y, again));
   placeCard(card, x, y);
 }
 
@@ -115,7 +122,19 @@ function section(card: HTMLElement, title: string, items: string[]) {
   card.append(list);
 }
 
-function renderCard(card: HTMLElement, word: string, reply: LookupReply) {
+function button(card: HTMLElement, text: string, onClick: () => void) {
+  const row = el('div', 'actions');
+  const btn = el('button', 'btn', text);
+  btn.addEventListener('click', (e) => { e.stopPropagation(); onClick(); });
+  row.append(btn);
+  card.append(row);
+}
+
+/**
+ * `sent` is the regenerate flag of the request that produced this reply. `again` reloads the card:
+ * 重新生成 always asks for a fresh result, 重试 repeats the request that failed.
+ */
+function renderCard(card: HTMLElement, word: string, reply: LookupReply, sent: boolean, again: (regenerate: boolean) => void) {
   card.replaceChildren();
   const head = el('div', 'head');
   head.append(el('span', 'word', word));
@@ -123,8 +142,14 @@ function renderCard(card: HTMLElement, word: string, reply: LookupReply) {
   card.append(head);
 
   if (!reply.ok) {
-    card.append(el('div', 'msg', reply.reason === 'unconfigured' ? '请先在设置中配置 AI' : `查词失败：${reply.message}`));
+    if (reply.reason === 'unconfigured') { card.append(el('div', 'msg', '请先在设置中配置 AI')); return; }
+    card.append(el('div', 'msg', `查词失败：${reply.message}`));
+    button(card, '重试', () => again(sent));
     return;
+  }
+  if (reply.meaning) {
+    card.append(el('h4', '', '原句中的意思'));
+    card.append(el('div', 'meaning', reply.meaning));
   }
   const { definitions, collocations, phrases, examples } = reply.lookup;
   section(card, '释义', definitions);
@@ -140,4 +165,5 @@ function renderCard(card: HTMLElement, word: string, reply: LookupReply) {
     }
     card.append(list);
   }
+  button(card, '重新生成', () => again(true));
 }

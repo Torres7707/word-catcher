@@ -46,7 +46,7 @@ function onSelectionEnd() {
   const msg = word ? { type: 'capture', payload } : { type: 'capturePhrase', payload };
   chrome.runtime.sendMessage(msg).then(async (r: CaptureResult) => {
     // The icon shows for every valid word once AI is set up, including repeats that do not count.
-    if (word && r?.aiConfigured) showIcon(word, rect);
+    if (word && r?.aiConfigured) showIcon(word, payload.sentence, rect);
     if (!r?.becameSaved) return;
     const { settings } = await chrome.storage.local.get('settings');
     if ((settings as Settings | undefined)?.toast === false) return;

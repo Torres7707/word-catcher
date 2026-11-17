@@ -1,7 +1,7 @@
 import { APICallError, Output, generateText, type LanguageModel } from 'ai';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import { z } from 'zod';
-import type { AiConfig, AiFailure, AiLookupResult, AiPhraseResult, AiTestResult } from './types';
+import type { AiConfig, AiFailure, AiLookupResult, AiMeaningResult, AiPhraseResult, AiTestResult } from './types';
 
 export const DEFAULT_BASE_URL = 'http://127.0.0.1:3425/v1';
 export const DEFAULT_AI_CONFIG: AiConfig = { baseUrl: DEFAULT_BASE_URL, apiKey: '', model: '', language: 'zh-CN' };
@@ -26,6 +26,7 @@ export function classifyAiError(err: unknown): { reason: AiFailure; message: str
   const e = err as { name?: string; message?: string };
   const message = e?.message ?? String(err);
   if (e?.name === 'TimeoutError' || e?.name === 'AbortError') return { reason: 'timeout', message: '请求超时（30 秒）' };
+  if (e?.name === 'AI_NoObjectGeneratedError') return { reason: 'unknown', message: '返回的数据格式不符合要求' };
   if (err instanceof APICallError) {
     const code = err.statusCode;
     if (code === 401 || code === 403) return { reason: 'key', message: 'key 无效或没有权限' };
@@ -73,25 +74,52 @@ const LookupSchema = z.object({
   phrases: z.array(z.string()),
   examples: z.array(z.object({ en: z.string(), translation: z.string() })),
 });
+const LookupWithMeaningSchema = LookupSchema.extend({ meaning: z.string() });
+const MeaningSchema = z.object({ meaning: z.string() });
 
 const LANGUAGE_NAMES: Record<string, string> = { 'zh-CN': 'Simplified Chinese', 'zh-TW': 'Traditional Chinese', en: 'English' };
 
 /**
  * Asks the model for the definitions, collocations, phrases and example sentences of one word.
- * Only the word is sent. The page address and the surrounding sentence are not.
+ * With a sentence, the answer also includes the word's meaning in that sentence, in one request.
+ * Only the word and the sentence are sent. The page address is not.
  */
-export async function lookupWord(config: AiConfig, word: string, model?: LanguageModel): Promise<AiLookupResult> {
+export async function lookupWord(
+  config: AiConfig,
+  word: string,
+  opts: { sentence?: string; model?: LanguageModel } = {},
+): Promise<AiLookupResult> {
+  const language = LANGUAGE_NAMES[config.language] ?? LANGUAGE_NAMES['zh-CN'];
+  const schema = opts.sentence ? LookupWithMeaningSchema : LookupSchema;
+  try {
+    const { output } = await generateText({
+      model: opts.model ?? createLanguageModel(config),
+      output: Output.object({ schema }),
+      system: `You are an English dictionary. Explain the word the user gives you. Write definitions and example translations in ${language}. Keep each item short.`,
+      prompt: opts.sentence ? `Word: ${word}\nSentence: ${opts.sentence}\nAlso give the meaning of the word as used in this sentence.` : word,
+      maxRetries: 0,
+      abortSignal: AbortSignal.timeout(AI_TIMEOUT_MS),
+    });
+    const { meaning, ...rest } = output as z.infer<typeof LookupWithMeaningSchema>;
+    return { ok: true, lookup: { ...rest, generatedAt: new Date().toISOString() }, ...(opts.sentence ? { meaning } : {}) };
+  } catch (err) {
+    return { ok: false, ...classifyAiError(err) };
+  }
+}
+
+/** Asks what the word means in one sentence. */
+export async function meaningInSentence(config: AiConfig, word: string, sentence: string, model?: LanguageModel): Promise<AiMeaningResult> {
   const language = LANGUAGE_NAMES[config.language] ?? LANGUAGE_NAMES['zh-CN'];
   try {
     const { output } = await generateText({
       model: model ?? createLanguageModel(config),
-      output: Output.object({ schema: LookupSchema }),
-      system: `You are an English dictionary. Explain the word the user gives you. Write definitions and example translations in ${language}. Keep each item short.`,
-      prompt: word,
+      output: Output.object({ schema: MeaningSchema }),
+      system: `Explain what the English word means in the sentence the user gives you. Answer in ${language}, in one short phrase.`,
+      prompt: `Word: ${word}\nSentence: ${sentence}`,
       maxRetries: 0,
       abortSignal: AbortSignal.timeout(AI_TIMEOUT_MS),
     });
-    return { ok: true, lookup: { ...output, generatedAt: new Date().toISOString() } };
+    return { ok: true, meaning: output.meaning };
   } catch (err) {
     return { ok: false, ...classifyAiError(err) };
   }

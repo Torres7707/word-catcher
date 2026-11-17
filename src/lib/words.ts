@@ -93,6 +93,13 @@ export function pruneRecent(recent: RecentMap, now: number): RecentMap {
  * Rules: same word + same page within 5 min => ignored. Otherwise count++ forever (no expiry).
  * count >= 2 => 'saved' unless already 'mastered' (mastered is never downgraded).
  */
+/** Keeps meanings only for sentences that are still among the contexts, plus the optional `keep` sentence. */
+export function pruneMeanings(meanings: Record<string, string>, contexts: Context[], keep?: string): Record<string, string> {
+  const live = new Set(contexts.map((c) => c.sentence));
+  if (keep) live.add(keep);
+  return Object.fromEntries(Object.entries(meanings).filter(([k]) => live.has(k)));
+}
+
 export function applySelection(words: Words, recent: RecentMap, ev: SelectionEvent) {
   if (isDuplicate(recent, ev)) return { words, recent, accepted: false, becameSaved: false };
   const date = new Date(ev.time).toISOString();
@@ -102,15 +109,17 @@ export function applySelection(words: Words, recent: RecentMap, ev: SelectionEve
   const kind = prev?.kind ?? ev.kind ?? 'word';
   const prevStatus = prev?.status ?? 'seen';
   const status = prevStatus === 'mastered' ? 'mastered' : count >= 2 ? 'saved' : prevStatus;
+  const contexts = [...(prev?.contexts ?? []), ctx].slice(-MAX_CONTEXTS);
   const entry: WordEntry = {
     word: ev.word,
     kind,
     count,
     firstSeen: prev?.firstSeen ?? date,
     lastSeen: date,
-    contexts: [...(prev?.contexts ?? []), ctx].slice(-MAX_CONTEXTS),
+    contexts,
     status,
     ...(prev?.lookup ? { lookup: prev.lookup } : {}),
+    ...(prev?.meanings ? { meanings: pruneMeanings(prev.meanings, contexts) } : {}),
   };
   return {
     words: { ...words, [ev.word]: entry },
@@ -156,15 +165,22 @@ export function mergeWords(base: Words, incoming: Words): Words {
     const dates = [cur?.firstSeen, inc.firstSeen].filter(Boolean) as string[];
     const lasts = [cur?.lastSeen, inc.lastSeen].filter(Boolean) as string[];
     const lookup = newerLookup(cur?.lookup, inc.lookup);
+    // The current device's meaning wins for a sentence both sides have.
+    const meanings = pruneMeanings({ ...incMeanings(inc.meanings), ...cur?.meanings }, contexts);
     out[w] = {
       word: w, kind: cur?.kind === 'phrase' || inc.kind === 'phrase' ? 'phrase' : 'word', count, status,
       firstSeen: dates.sort()[0] ?? new Date().toISOString(),
       lastSeen: lasts.sort().at(-1) ?? new Date().toISOString(),
       contexts: contexts.slice(-MAX_CONTEXTS),
       ...(lookup ? { lookup } : {}),
+      ...(Object.keys(meanings).length ? { meanings } : {}),
     };
   }
   return out;
+}
+
+function incMeanings(m: unknown): Record<string, string> {
+  return m && typeof m === 'object' && !Array.isArray(m) ? (m as Record<string, string>) : {};
 }
 
 /** Entries saved before the kind field existed are words. Counts, status and dates are untouched. */

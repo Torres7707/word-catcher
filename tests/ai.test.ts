@@ -91,6 +91,7 @@ describe('store testAi message', () => {
     const fake: AiPort = {
       test: async (c): Promise<AiTestResult> => { seen.push(c); return { ok: false, reason: 'key', message: 'bad key' }; },
       lookup: async () => ({ ok: false, reason: 'unknown', message: 'unused' }),
+      meaning: async () => ({ ok: false, reason: 'unknown', message: 'unused' }),
       judgePhrase: async () => ({ ok: false, reason: 'unknown', message: 'unused' }),
     };
     const store = createStore(area, undefined, fake);

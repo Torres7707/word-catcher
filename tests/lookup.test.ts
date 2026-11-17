@@ -28,6 +28,7 @@ function fakeAi(result: AiLookupResult | ((word: string) => Promise<AiLookupResu
   const port: AiPort = {
     test: async () => ({ ok: true }),
     lookup: async (_c, word) => { calls.push(word); return typeof result === 'function' ? result(word) : result; },
+    meaning: async () => ({ ok: false, reason: 'unknown', message: 'unused' }),
     judgePhrase: async () => ({ ok: false, reason: 'unknown', message: 'unused' }),
   };
   return { port, calls };
@@ -86,7 +87,7 @@ describe('lookupWord (AI adapter)', () => {
   const content = { definitions: lookup.definitions, collocations: lookup.collocations, phrases: [], examples: lookup.examples };
 
   it('parses the structured answer into a lookup', async () => {
-    const r = await lookupWord(cfg, 'serendipity', model(JSON.stringify(content)));
+    const r = await lookupWord(cfg, 'serendipity', { model: model(JSON.stringify(content)) });
     expect(r.ok).toBe(true);
     if (r.ok) {
       expect(r.lookup).toMatchObject(content);
@@ -94,14 +95,14 @@ describe('lookupWord (AI adapter)', () => {
     }
   });
   it('an answer that does not match the schema is a failure', async () => {
-    const r = await lookupWord(cfg, 'serendipity', model('{"definitions":"not a list"}'));
+    const r = await lookupWord(cfg, 'serendipity', { model: model('{"definitions":"not a list"}') });
     expect(r).toMatchObject({ ok: false, reason: 'unknown' });
   });
   it('a 401 from the gateway is reported as a key problem', async () => {
     const bad = new MockLanguageModelV3({
       doGenerate: async () => { throw new APICallError({ message: 'Unauthorized', url: 'x', requestBodyValues: {}, statusCode: 401, isRetryable: false }); },
     });
-    expect(await lookupWord(cfg, 'serendipity', bad)).toMatchObject({ ok: false, reason: 'key' });
+    expect(await lookupWord(cfg, 'serendipity', { model: bad })).toMatchObject({ ok: false, reason: 'key' });
   });
 });
 
