@@ -14,6 +14,7 @@
     "e2e": "node e2e/run.mjs",
     "e2e:config": "node e2e/config.mjs",
     "e2e:lookup": "node e2e/lookup.mjs",
+    "e2e:popup": "node e2e/popup.mjs",
     "zip": "cd dist && zip -qr ../word-catcher-$npm_package_version.zip ."
   },
   "dependencies": {

@@ -65,8 +65,9 @@ export function createStore(area: Area, onSaved?: (n: number) => void, ai: AiPor
    * `regenerate` replaces both. The AI calls run outside the storage chain.
    */
   async function lookup(raw: string, sentence?: string, regenerate = false): Promise<LookupReply> {
-    const word = acceptSelection(raw);
-    if (!word) return { ok: false, reason: 'unknown', message: '只能查单个英文单词' };
+    // Single words and 2 to 6 word phrases both have a lookup. The popup opens phrases too.
+    const word = acceptSelection(raw) ?? phraseCandidate(raw);
+    if (!word) return { ok: false, reason: 'unknown', message: '只能查单词或 2 到 6 个词的短语' };
     const context = sentence ? clipSentence(sentence) : undefined;
 
     const snap = await run(async () => {

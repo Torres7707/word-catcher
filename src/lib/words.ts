@@ -88,11 +88,12 @@ export function pruneRecent(recent: RecentMap, now: number): RecentMap {
   return out;
 }
 
-/**
- * Pure update: apply one selection. Returns new words/recent maps and whether it counted.
- * Rules: same word + same page within 5 min => ignored. Otherwise count++ forever (no expiry).
- * count >= 2 => 'saved' unless already 'mastered' (mastered is never downgraded).
- */
+/** Case-insensitive substring match on the word or phrase. Runs of spaces in the query count as one. */
+export function searchEntries(entries: WordEntry[], q: string): WordEntry[] {
+  const needle = q.trim().toLowerCase().replace(/\s+/g, ' ');
+  return entries.filter((w) => w.word.includes(needle));
+}
+
 /** Keeps meanings only for sentences that are still among the contexts, plus the optional `keep` sentence. */
 export function pruneMeanings(meanings: Record<string, string>, contexts: Context[], keep?: string): Record<string, string> {
   const live = new Set(contexts.map((c) => c.sentence));
@@ -100,6 +101,11 @@ export function pruneMeanings(meanings: Record<string, string>, contexts: Contex
   return Object.fromEntries(Object.entries(meanings).filter(([k]) => live.has(k)));
 }
 
+/**
+ * Pure update: apply one selection. Returns new words/recent maps and whether it counted.
+ * Rules: same word + same page within 5 min => ignored. Otherwise count++ forever (no expiry).
+ * count >= 2 => 'saved' unless already 'mastered' (mastered is never downgraded).
+ */
 export function applySelection(words: Words, recent: RecentMap, ev: SelectionEvent) {
   if (isDuplicate(recent, ev)) return { words, recent, accepted: false, becameSaved: false };
   const date = new Date(ev.time).toISOString();
