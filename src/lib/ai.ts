@@ -4,8 +4,15 @@ import { z } from 'zod';
 import type { AiConfig, AiFailure, AiLookupResult, AiMeaningResult, AiPhraseResult, AiTestResult } from './types';
 
 export const DEFAULT_BASE_URL = 'http://127.0.0.1:3425/v1';
-export const DEFAULT_AI_CONFIG: AiConfig = { baseUrl: DEFAULT_BASE_URL, apiKey: '', model: '', language: 'zh-CN' };
-export const AI_TIMEOUT_MS = 30_000;
+export const DEFAULT_AI_CONFIG: AiConfig = { baseUrl: DEFAULT_BASE_URL, apiKey: '', model: '', language: 'zh-CN', timeoutSeconds: 60 };
+/** The request timeout a user can choose, in whole seconds. */
+export const TIMEOUT_RANGE = { min: 10, max: 300 } as const;
+
+/** The timeout in seconds for a config. A missing or out-of-range value (for example, an older saved config) uses the default. */
+export function timeoutSecondsOf(config: AiConfig): number {
+  const s = config.timeoutSeconds;
+  return Number.isInteger(s) && s >= TIMEOUT_RANGE.min && s <= TIMEOUT_RANGE.max ? s : DEFAULT_AI_CONFIG.timeoutSeconds;
+}
 
 /** Returns the trimmed address without a trailing slash. Throws if it is not an http(s) URL. */
 export function validateBaseUrl(raw: string): string {
@@ -22,10 +29,10 @@ export function originPattern(baseUrl: string): string {
 }
 
 /** Maps a failed request to the reason the options page shows. */
-export function classifyAiError(err: unknown): { reason: AiFailure; message: string } {
+export function classifyAiError(err: unknown, seconds = DEFAULT_AI_CONFIG.timeoutSeconds): { reason: AiFailure; message: string } {
   const e = err as { name?: string; message?: string };
   const message = e?.message ?? String(err);
-  if (e?.name === 'TimeoutError' || e?.name === 'AbortError') return { reason: 'timeout', message: '请求超时（30 秒）' };
+  if (e?.name === 'TimeoutError' || e?.name === 'AbortError') return { reason: 'timeout', message: `请求超时（${seconds} 秒）` };
   if (e?.name === 'AI_NoObjectGeneratedError') return { reason: 'unknown', message: '返回的数据格式不符合要求' };
   if (err instanceof APICallError) {
     const code = err.statusCode;
@@ -60,11 +67,11 @@ export async function testConnection(config: AiConfig, model?: LanguageModel): P
       prompt: 'Reply with OK.',
       maxOutputTokens: 8,
       maxRetries: 0,
-      abortSignal: AbortSignal.timeout(AI_TIMEOUT_MS),
+      abortSignal: AbortSignal.timeout(timeoutSecondsOf(config) * 1000),
     });
     return { ok: true };
   } catch (err) {
-    return { ok: false, ...classifyAiError(err) };
+    return { ok: false, ...classifyAiError(err, timeoutSecondsOf(config)) };
   }
 }
 
@@ -113,12 +120,12 @@ export async function lookupWord(
       prompt: opts.sentence ? `Word: ${word}\nSentence: ${opts.sentence}\nAlso give the meaning of the word as used in this sentence.` : word,
       maxRetries: 0,
       providerOptions: FAST_OPTIONS,
-      abortSignal: AbortSignal.timeout(AI_TIMEOUT_MS),
+      abortSignal: AbortSignal.timeout(timeoutSecondsOf(config) * 1000),
     });
     const { meaning, ...rest } = output as z.infer<typeof LookupWithMeaningSchema>;
     return { ok: true, lookup: { ...rest, generatedAt: new Date().toISOString() }, ...(opts.sentence ? { meaning } : {}) };
   } catch (err) {
-    return { ok: false, ...classifyAiError(err) };
+    return { ok: false, ...classifyAiError(err, timeoutSecondsOf(config)) };
   }
 }
 
@@ -133,11 +140,11 @@ export async function meaningInSentence(config: AiConfig, word: string, sentence
       prompt: `Word: ${word}\nSentence: ${sentence}`,
       maxRetries: 0,
       providerOptions: FAST_OPTIONS,
-      abortSignal: AbortSignal.timeout(AI_TIMEOUT_MS),
+      abortSignal: AbortSignal.timeout(timeoutSecondsOf(config) * 1000),
     });
     return { ok: true, meaning: output.meaning };
   } catch (err) {
-    return { ok: false, ...classifyAiError(err) };
+    return { ok: false, ...classifyAiError(err, timeoutSecondsOf(config)) };
   }
 }
 
@@ -159,10 +166,10 @@ export async function judgePhrase(config: AiConfig, text: string, model?: Langua
       prompt: text,
       maxRetries: 0,
       providerOptions: FAST_OPTIONS,
-      abortSignal: AbortSignal.timeout(AI_TIMEOUT_MS),
+      abortSignal: AbortSignal.timeout(timeoutSecondsOf(config) * 1000),
     });
     return { ok: true, isPhrase: output.isPhrase, confidence: output.confidence };
   } catch (err) {
-    return { ok: false, ...classifyAiError(err) };
+    return { ok: false, ...classifyAiError(err, timeoutSecondsOf(config)) };
   }
 }

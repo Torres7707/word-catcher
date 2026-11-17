@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { DEFAULT_AI_CONFIG, originPattern, validateBaseUrl } from '../lib/ai';
+import { DEFAULT_AI_CONFIG, TIMEOUT_RANGE, originPattern, validateBaseUrl } from '../lib/ai';
 import type { AiConfig, AiFailure, AiTestResult } from '../lib/types';
 
 const LANGUAGES = [
@@ -24,7 +24,15 @@ function normalize(form: AiConfig): AiConfig {
     apiKey: form.apiKey.trim(),
     model: form.model.trim(),
     language: form.language,
+    timeoutSeconds: checkTimeout(form.timeoutSeconds),
   };
+}
+
+function checkTimeout(seconds: number): number {
+  if (!Number.isInteger(seconds) || seconds < TIMEOUT_RANGE.min || seconds > TIMEOUT_RANGE.max) {
+    throw new Error(`请求超时需为 ${TIMEOUT_RANGE.min} 到 ${TIMEOUT_RANGE.max} 之间的整数（秒）`);
+  }
+  return seconds;
 }
 
 /**
@@ -96,6 +104,11 @@ export function App() {
 
       <label>模型 (model)</label>
       <input value={form.model} onChange={(e) => field('model')(e.target.value)} placeholder="例如 gpt-4o-mini" autoComplete="off" />
+
+      <label>请求超时（秒）</label>
+      <input type="number" min={TIMEOUT_RANGE.min} max={TIMEOUT_RANGE.max} step={1} value={form.timeoutSeconds}
+        onChange={(e) => setForm((f) => ({ ...f, timeoutSeconds: Number(e.target.value) }))} />
+      <div className="hint">查词和判定短语最多等待这么久，{TIMEOUT_RANGE.min} 到 {TIMEOUT_RANGE.max} 秒。网关较慢时可以调大；失败时要等满这段时间才会提示。</div>
 
       <label>释义语言</label>
       <select value={form.language} onChange={(e) => field('language')(e.target.value)}>

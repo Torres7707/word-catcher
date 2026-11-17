@@ -22,7 +22,7 @@ export interface PhraseCheck { isPhrase: boolean; confidence: number; checkedAt:
 export type AiPhraseResult = { ok: true; isPhrase: boolean; confidence: number } | { ok: false; reason: AiFailure; message: string };
 
 /** AI gateway settings. Stored under its own key, never in the exported word data. */
-export interface AiConfig { baseUrl: string; apiKey: string; model: string; language: string }
+export interface AiConfig { baseUrl: string; apiKey: string; model: string; language: string; timeoutSeconds: number }
 export type AiFailure = 'address' | 'key' | 'model' | 'timeout' | 'unknown';
 export type AiTestResult = { ok: true } | { ok: false; reason: AiFailure; message: string };
 export type AiLookupResult = { ok: true; lookup: Lookup; meaning?: string } | { ok: false; reason: AiFailure; message: string };

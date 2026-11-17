@@ -1,6 +1,6 @@
 import { APICallError } from 'ai';
 import { MockLanguageModelV3 } from 'ai/test';
-import { DEFAULT_AI_CONFIG, classifyAiError, originPattern, testConnection, validateBaseUrl } from '../src/lib/ai';
+import { DEFAULT_AI_CONFIG, classifyAiError, originPattern, testConnection, timeoutSecondsOf, validateBaseUrl } from '../src/lib/ai';
 import { createStore, type Area, type AiPort } from '../src/lib/store';
 import type { AiConfig, AiTestResult } from '../src/lib/types';
 
@@ -98,5 +98,21 @@ describe('store testAi message', () => {
     const r = await store.handle({ type: 'testAi', config: cfg });
     expect(seen).toEqual([cfg]);
     expect(r).toEqual({ ok: false, reason: 'key', message: 'bad key' });
+  });
+});
+
+describe('request timeout setting', () => {
+  it('uses the saved seconds, and the default when the value is missing or out of range', () => {
+    expect(timeoutSecondsOf({ ...cfg, timeoutSeconds: 90 })).toBe(90);
+    expect(timeoutSecondsOf({ ...cfg, timeoutSeconds: 60 })).toBe(60);
+    const older: Partial<AiConfig> = { ...cfg };
+    delete older.timeoutSeconds;
+    expect(timeoutSecondsOf(older as AiConfig)).toBe(60);
+    for (const bad of [0, 5, 301, 12.5, Number.NaN]) expect(timeoutSecondsOf({ ...cfg, timeoutSeconds: bad })).toBe(60);
+  });
+  it('the timeout message shows the seconds that were set', () => {
+    const err = Object.assign(new Error('timed out'), { name: 'TimeoutError' });
+    expect(classifyAiError(err, 90)).toEqual({ reason: 'timeout', message: '请求超时（90 秒）' });
+    expect(classifyAiError(err).message).toBe('请求超时（60 秒）');
   });
 });
