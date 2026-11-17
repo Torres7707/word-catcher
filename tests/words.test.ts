@@ -1,4 +1,4 @@
-import { acceptSelection, applySelection, cleanUrl, extractSentence, mergeWords, normalizeWord, DEDUP_MS } from '../src/lib/words';
+import { acceptSelection, applySelection, buildExport, cleanUrl, extractSentence, mergeWords, normalizeWord, normalizeWords, parseImport, DEDUP_MS } from '../src/lib/words';
 import { createStore, type Area } from '../src/lib/store';
 import type { Words } from '../src/lib/types';
 
@@ -82,7 +82,7 @@ describe('store (mock chrome.storage)', () => {
 
 describe('mergeWords', () => {
   const base: Words = {
-    alpha: { word: 'alpha', count: 2, status: 'saved', firstSeen: '2026-01-02T00:00:00.000Z', lastSeen: '2026-01-05T00:00:00.000Z',
+    alpha: { word: 'alpha', kind: 'word', count: 2, status: 'saved', firstSeen: '2026-01-02T00:00:00.000Z', lastSeen: '2026-01-05T00:00:00.000Z',
       contexts: [{ sentence: 's1', url: 'u1', date: '2026-01-02T00:00:00.000Z' }, { sentence: 's2', url: 'u2', date: '2026-01-05T00:00:00.000Z' }] },
   };
   it('re-importing own backup is idempotent', () => {
@@ -90,10 +90,10 @@ describe('mergeWords', () => {
   });
   it('unions contexts, takes max count, min/max dates, higher status', () => {
     const inc: Words = {
-      alpha: { word: 'alpha', count: 1, status: 'mastered', firstSeen: '2025-12-01T00:00:00.000Z', lastSeen: '2025-12-01T00:00:00.000Z',
+      alpha: { word: 'alpha', kind: 'word', count: 1, status: 'mastered', firstSeen: '2025-12-01T00:00:00.000Z', lastSeen: '2025-12-01T00:00:00.000Z',
         contexts: [{ sentence: 's0', url: 'u0', date: '2025-12-01T00:00:00.000Z' }] },
-      beta: { word: 'Beta', count: 1, status: 'seen', firstSeen: 'x', lastSeen: 'x', contexts: [] },
-      'bad word': { word: 'bad word', count: 1, status: 'seen', firstSeen: 'x', lastSeen: 'x', contexts: [] },
+      beta: { word: 'Beta', kind: 'word', count: 1, status: 'seen', firstSeen: 'x', lastSeen: 'x', contexts: [] },
+      'bad word': { word: 'bad word', kind: 'word', count: 1, status: 'seen', firstSeen: 'x', lastSeen: 'x', contexts: [] },
     };
     const m = mergeWords(base, inc);
     expect(m.alpha.contexts.map((c) => c.url)).toEqual(['u0', 'u1', 'u2']);
@@ -103,5 +103,72 @@ describe('mergeWords', () => {
     expect(m.alpha.lastSeen).toBe('2026-01-05T00:00:00.000Z');
     expect(m.beta.word).toBe('beta');
     expect(m['bad word']).toBeUndefined();
+  });
+});
+
+describe('entry kind and data format (ticket #2)', () => {
+  const legacy = {
+    alpha: { word: 'alpha', count: 2, status: 'saved', firstSeen: '2026-01-02T00:00:00.000Z', lastSeen: '2026-01-05T00:00:00.000Z', contexts: [] },
+  };
+  it('normalizeWords gives legacy entries without kind the kind word', () => {
+    expect(normalizeWords(legacy).alpha.kind).toBe('word');
+  });
+  it('normalizeWords keeps an explicit kind', () => {
+    expect(normalizeWords({ x: { ...legacy.alpha, kind: 'phrase' } }).x.kind).toBe('phrase');
+  });
+  it('normalizeWords does not change counts or status of legacy data', () => {
+    const n = normalizeWords(legacy).alpha;
+    expect([n.count, n.status, n.firstSeen, n.lastSeen]).toEqual([2, 'saved', '2026-01-02T00:00:00.000Z', '2026-01-05T00:00:00.000Z']);
+  });
+  it('applySelection creates new entries with kind word', () => {
+    const r = applySelection({}, {}, ev('retry', 'https://a.com/', 1000));
+    expect(r.words.retry.kind).toBe('word');
+  });
+  it('mergeWords output always has kind word', () => {
+    const m = mergeWords({}, normalizeWords(legacy));
+    expect(m.alpha.kind).toBe('word');
+  });
+  it('buildExport writes version 2 with the words', () => {
+    const words = normalizeWords(legacy);
+    expect(buildExport(words)).toEqual({ version: 2, words });
+  });
+  it('parseImport accepts version 1 files', () => {
+    const w = parseImport(JSON.stringify({ version: 1, words: legacy }));
+    expect(w.alpha.count).toBe(2);
+    expect(w.alpha.kind).toBe('word');
+  });
+  it('parseImport accepts version 2 files', () => {
+    const w = parseImport(JSON.stringify({ version: 2, words: normalizeWords(legacy) }));
+    expect(w.alpha.kind).toBe('word');
+  });
+  it('parseImport accepts a bare words object with no version', () => {
+    expect(parseImport(JSON.stringify(legacy)).alpha.count).toBe(2);
+  });
+  it('parseImport rejects unknown versions and non-object files', () => {
+    expect(() => parseImport(JSON.stringify({ version: 3, words: legacy }))).toThrow();
+    expect(() => parseImport('[]')).toThrow();
+    expect(() => parseImport('"hello"')).toThrow();
+    expect(() => parseImport('not json')).toThrow();
+  });
+  it('export then import round trip keeps every entry', () => {
+    const words = normalizeWords(legacy);
+    const back = mergeWords({}, parseImport(JSON.stringify(buildExport(words))));
+    expect(back).toEqual(words);
+  });
+  it('mergeWords keeps phrase kind when either side is a phrase', () => {
+    const phrase = { word: 'alpha', kind: 'phrase' as const, count: 2, status: 'seen' as const, firstSeen: '2026-01-02T00:00:00.000Z', lastSeen: '2026-01-05T00:00:00.000Z', contexts: [] };
+    expect(mergeWords({}, { alpha: phrase }).alpha.kind).toBe('phrase');
+    expect(mergeWords({ alpha: phrase }, normalizeWords(legacy)).alpha.kind).toBe('phrase');
+  });
+  it('parseImport reads a bare map whose key is the real word "words"', () => {
+    const bare = { words: { word: 'words', count: 3, status: 'seen', firstSeen: '2026-01-02T00:00:00.000Z', lastSeen: '2026-01-02T00:00:00.000Z', contexts: [] } };
+    expect(parseImport(JSON.stringify(bare)).words.count).toBe(3);
+  });
+  it('normalizeWords keeps non-object values instead of dropping them', () => {
+    const raw = { alpha: legacy.alpha, broken: null, junk: 'x', list: [1, 2] };
+    const out = normalizeWords(raw as Record<string, unknown>);
+    expect(Object.keys(out).sort()).toEqual(['alpha', 'broken', 'junk', 'list']);
+    expect(out.broken).toBeNull();
+    expect(out.junk).toBe('x');
   });
 });

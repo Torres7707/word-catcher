@@ -71,6 +71,7 @@ export function applySelection(words: Words, recent: RecentMap, ev: SelectionEve
   const status = prevStatus === 'mastered' ? 'mastered' : count >= 2 ? 'saved' : prevStatus;
   const entry: WordEntry = {
     word: ev.word,
+    kind: prev?.kind ?? 'word',
     count,
     firstSeen: prev?.firstSeen ?? date,
     lastSeen: date,
@@ -114,13 +115,49 @@ export function mergeWords(base: Words, incoming: Words): Words {
     const dates = [cur?.firstSeen, inc.firstSeen].filter(Boolean) as string[];
     const lasts = [cur?.lastSeen, inc.lastSeen].filter(Boolean) as string[];
     out[w] = {
-      word: w, count, status,
+      word: w, kind: cur?.kind === 'phrase' || inc.kind === 'phrase' ? 'phrase' : 'word', count, status,
       firstSeen: dates.sort()[0] ?? new Date().toISOString(),
       lastSeen: lasts.sort().at(-1) ?? new Date().toISOString(),
       contexts: contexts.slice(-MAX_CONTEXTS),
     };
   }
   return out;
+}
+
+/** Entries saved before the kind field existed are words. Counts, status and dates are untouched. */
+export function normalizeWords(raw: Record<string, unknown>): Words {
+  const out: Words = {};
+  for (const [key, v] of Object.entries(raw)) {
+    if (!v || typeof v !== 'object' || Array.isArray(v)) { out[key] = v as WordEntry; continue; }
+    const e = v as WordEntry;
+    out[key] = { ...e, kind: e.kind === 'phrase' ? 'phrase' : 'word' };
+  }
+  return out;
+}
+
+export const EXPORT_VERSION = 2;
+const IMPORTABLE_VERSIONS = [1, 2];
+
+export function buildExport(words: Words) {
+  return { version: EXPORT_VERSION, words };
+}
+
+/**
+ * Parse an exported file. Accepts the wrapped `{ version, words }` form (versions 1 and 2)
+ * or a bare words object with no wrapper.
+ */
+export function parseImport(text: string): Words {
+  const data: unknown = JSON.parse(text);
+  if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error('格式不对');
+  const file = data as { version?: unknown; words?: unknown };
+  let raw: unknown = data;
+  // A wrapper always carries a numeric version. A bare map may hold a word named "words" or "version".
+  if (typeof file.version === 'number') {
+    if (!IMPORTABLE_VERSIONS.includes(file.version)) throw new Error(`不支持的文件版本: ${file.version}`);
+    raw = file.words;
+  }
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('格式不对');
+  return normalizeWords(raw as Record<string, unknown>);
 }
 
 export function toMarkdown(words: Words): string {

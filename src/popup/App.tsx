@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Msg, Settings, Status, WordEntry, Words } from '../lib/types';
-import { toMarkdown } from '../lib/words';
+import { buildExport, normalizeWords, parseImport, toMarkdown } from '../lib/words';
 
 const send = (m: Msg) => chrome.runtime.sendMessage(m);
 const TABS: { key: Status; label: string }[] = [
@@ -25,7 +25,7 @@ export function App() {
 
   useEffect(() => {
     const load = () => chrome.storage.local.get(['words', 'settings']).then((r) => {
-      setWords((r.words as Words) ?? {});
+      setWords(normalizeWords((r.words as Record<string, unknown>) ?? {}));
       setSettings({ toast: true, ...(r.settings as Settings | undefined) });
     });
     void load();
@@ -44,9 +44,7 @@ export function App() {
   const onImport = async (f: File | undefined) => {
     if (!f) return;
     try {
-      const data = JSON.parse(await f.text());
-      const w = (data.words ?? data) as Words;
-      if (typeof w !== 'object' || Array.isArray(w)) throw new Error('格式不对');
+      const w = parseImport(await f.text());
       await send({ type: 'import', words: w });
       alert('导入完成');
     } catch (e) { alert('导入失败: ' + String(e)); }
@@ -86,7 +84,7 @@ export function App() {
       </ul>
       <footer>
         <button onClick={() => download(`word-catcher-${today}.md`, toMarkdown(words), 'text/markdown')}>导出 Markdown</button>
-        <button onClick={() => download(`word-catcher-${today}.json`, JSON.stringify({ version: 1, words }, null, 2), 'application/json')}>导出 JSON</button>
+        <button onClick={() => download(`word-catcher-${today}.json`, JSON.stringify(buildExport(words), null, 2), 'application/json')}>导出 JSON</button>
         <button onClick={() => fileRef.current?.click()}>导入 JSON</button>
         <input ref={fileRef} type="file" accept=".json,application/json" hidden onChange={(e) => void onImport(e.target.files?.[0])} />
         <button className="danger" onClick={() => { if (confirm('确定清空所有单词？此操作不可撤销（建议先导出 JSON 备份）。')) void send({ type: 'clear' }); }}>清空</button>

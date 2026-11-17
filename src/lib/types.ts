@@ -1,7 +1,8 @@
 export type Status = 'seen' | 'saved' | 'mastered';
+export type EntryKind = 'word' | 'phrase';
 export interface Context { sentence: string; url: string; date: string }
 export interface WordEntry {
-  word: string; count: number; firstSeen: string; lastSeen: string;
+  word: string; kind: EntryKind; count: number; firstSeen: string; lastSeen: string;
   contexts: Context[]; status: Status;
 }
 export type Words = Record<string, WordEntry>;

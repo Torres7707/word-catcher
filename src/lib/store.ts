@@ -1,5 +1,5 @@
 import type { CaptureResult, Msg, RecentMap, Settings, Words } from './types';
-import { applySelection, mergeWords, savedCount } from './words';
+import { applySelection, mergeWords, normalizeWords, savedCount } from './words';
 
 /** Minimal storage interface so tests can mock chrome.storage.local. */
 export interface Area {
@@ -19,7 +19,7 @@ export function createStore(area: Area, onSaved?: (n: number) => void) {
   };
   const load = async () => {
     const d = await area.get(['words', 'recent']);
-    return { words: (d.words as Words) ?? {}, recent: (d.recent as RecentMap) ?? {} };
+    return { words: normalizeWords((d.words as Record<string, unknown>) ?? {}), recent: (d.recent as RecentMap) ?? {} };
   };
   const saveWords = async (words: Words, extra: Record<string, unknown> = {}) => {
     await area.set({ words, ...extra });
