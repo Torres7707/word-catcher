@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Word Catcher",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "记录你在网页上划选的英文单词和短语，第二次划到自动加入生词本。AI 查词是可选功能，未配置时不发任何网络请求。",
   "permissions": ["storage"],
   "optional_host_permissions": ["<all_urls>"],

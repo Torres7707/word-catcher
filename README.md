@@ -26,7 +26,7 @@ npm test                    # 单元测试 (Vitest)
 npm run lint
 ```
 
-不想构建：到 [Releases](../../releases) 下载 `word-catcher-0.2.0.zip` 解压即可。
+不想构建：到 [Releases](../../releases) 下载 `word-catcher-0.2.1.zip` 解压即可。
 
 ## 在 Chrome 中加载
 
