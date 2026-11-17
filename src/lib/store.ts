@@ -1,5 +1,12 @@
-import type { CaptureResult, Msg, RecentMap, Settings, Words } from './types';
+import type { AiConfig, AiTestResult, CaptureResult, Msg, RecentMap, Settings, Words } from './types';
 import { applySelection, mergeWords, savedCount } from './words';
+import { testConnection } from './ai';
+
+/** The AI gateway seam. Production uses the AI SDK; tests pass a fake. */
+export interface AiPort {
+  test(config: AiConfig): Promise<AiTestResult>;
+}
+export const liveAiPort: AiPort = { test: (config) => testConnection(config) };
 
 /** Minimal storage interface so tests can mock chrome.storage.local. */
 export interface Area {
@@ -10,7 +17,7 @@ export interface Area {
 export const DEFAULT_SETTINGS: Settings = { toast: true };
 
 /** Serializes all read-modify-write operations through one promise chain. */
-export function createStore(area: Area, onSaved?: (n: number) => void) {
+export function createStore(area: Area, onSaved?: (n: number) => void, ai: AiPort = liveAiPort) {
   let chain: Promise<unknown> = Promise.resolve();
   const run = <T>(fn: () => Promise<T>): Promise<T> => {
     const p = chain.then(fn, fn);
@@ -27,7 +34,8 @@ export function createStore(area: Area, onSaved?: (n: number) => void) {
   };
 
   return {
-    handle(msg: Msg): Promise<CaptureResult | { ok: true }> {
+    handle(msg: Msg): Promise<CaptureResult | { ok: true } | AiTestResult> {
+      if (msg.type === 'testAi') return ai.test(msg.config);
       return run(async () => {
         const { words, recent } = await load();
         switch (msg.type) {

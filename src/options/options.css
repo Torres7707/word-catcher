@@ -1,0 +1,9 @@
+.app.opts{width:auto;max-width:520px;max-height:none;margin:24px auto;padding:0 16px}
+.opts h2{font-size:15px;margin:18px 0 4px}
+.opts label{display:block;margin:12px 0 4px;color:#374151}
+.opts input,.opts select{width:100%;padding:6px 8px;border:1px solid #d1d5db;border-radius:6px;font:inherit;background:#fff}
+.opts .hint{color:#6b7280;font-size:12px;margin-top:4px}
+.opts .actions{display:flex;gap:8px;margin-top:18px;align-items:center}
+.opts .actions button{padding:5px 14px;font-size:13px}
+.opts .msg{margin-top:12px;font-size:13px;white-space:pre-wrap}
+.opts .msg.ok{color:#047857}.opts .msg.err{color:#dc2626}.opts .msg.info{color:#6b7280}

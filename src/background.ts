@@ -8,7 +8,12 @@ const setBadge = (n: number) => {
 };
 const store = createStore(chrome.storage.local, setBadge);
 
-chrome.runtime.onMessage.addListener((msg: Msg, _sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((msg: Msg, sender, sendResponse) => {
+  // Only extension pages (options, popup) may test the AI config; web pages run content scripts in tabs.
+  if (msg.type === 'testAi' && sender.tab) {
+    sendResponse({ error: 'testAi is only allowed from extension pages' });
+    return false;
+  }
   store.handle(msg).then(sendResponse, (e) => sendResponse({ error: String(e) }));
   return true; // async response
 });

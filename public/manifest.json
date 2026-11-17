@@ -4,6 +4,8 @@
   "version": "0.1.0",
   "description": "记录你在网页上划选的英文单词，第二次划到自动加入生词本。纯本地，无网络。",
   "permissions": ["storage"],
+  "optional_host_permissions": ["<all_urls>"],
+  "options_ui": { "page": "options.html", "open_in_tab": true },
   "background": { "service_worker": "background.js", "type": "module" },
   "action": { "default_popup": "popup.html", "default_icon": { "16": "icons/16.png", "48": "icons/48.png", "128": "icons/128.png" } },
   "icons": { "16": "icons/16.png", "48": "icons/48.png", "128": "icons/128.png" },
