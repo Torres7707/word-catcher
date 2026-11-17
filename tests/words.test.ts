@@ -1,4 +1,4 @@
-import { acceptSelection, applySelection, buildExport, cleanUrl, extractSentence, mergeWords, normalizeWord, normalizeWords, parseImport, DEDUP_MS } from '../src/lib/words';
+import { acceptSelection, applySelection, buildExport, cleanUrl, extractSentence, mergeWords, normalizeWord, normalizeWords, parseImport, toMarkdown, DEDUP_MS } from '../src/lib/words';
 import { createStore, type Area } from '../src/lib/store';
 import type { Words } from '../src/lib/types';
 
@@ -77,6 +77,93 @@ describe('store (mock chrome.storage)', () => {
     expect(badge).toBe(0);
     await store.handle({ type: 'delete', word: 'race' });
     expect(area.data.words).toEqual({});
+  });
+});
+
+describe('lookup results in export and import (ticket #9)', () => {
+  const lookup = (generatedAt: string, def: string) => ({
+    definitions: [def], collocations: [], phrases: [], examples: [{ en: 'A serendipity.', translation: '一次幸运。' }], generatedAt,
+  });
+  const entry = (lk?: ReturnType<typeof lookup>, extra: Partial<Words[string]> = {}): Words[string] => ({
+    word: 'serendipity', kind: 'word', count: 2, status: 'saved', firstSeen: '2026-01-02T00:00:00.000Z', lastSeen: '2026-01-05T00:00:00.000Z',
+    contexts: [{ sentence: 'A serendipity.', url: 'u1', date: '2026-01-02T00:00:00.000Z' }],
+    ...(lk ? { lookup: lk } : {}), ...extra,
+  });
+
+  it('the JSON export carries each entry\'s lookup and sentence meanings', () => {
+    const words: Words = { serendipity: entry(lookup('2026-01-03T00:00:00.000Z', 'n. 运气'), { meanings: { 'A serendipity.': '一次幸运' } }) };
+    const back = parseImport(JSON.stringify(buildExport(words)));
+    expect(back.serendipity.lookup).toEqual(lookup('2026-01-03T00:00:00.000Z', 'n. 运气'));
+    expect(back.serendipity.meanings).toEqual({ 'A serendipity.': '一次幸运' });
+  });
+
+  it('a merge keeps the lookup generated later when both sides have one', () => {
+    const mine: Words = { serendipity: entry(lookup('2026-01-03T00:00:00.000Z', 'mine')) };
+    const theirs: Words = { serendipity: entry(lookup('2026-01-04T00:00:00.000Z', 'theirs')) };
+    expect(mergeWords(mine, theirs).serendipity.lookup?.definitions).toEqual(['theirs']);
+    expect(mergeWords(theirs, mine).serendipity.lookup?.definitions).toEqual(['theirs']);
+  });
+
+  it('a merge keeps a lookup that only one side has', () => {
+    expect(mergeWords({ serendipity: entry() }, { serendipity: entry(lookup('2026-01-03T00:00:00.000Z', 'only')) }).serendipity.lookup?.definitions).toEqual(['only']);
+  });
+
+  it('the Markdown export lists definitions and examples under each word', () => {
+    const md = toMarkdown({ serendipity: entry(lookup('2026-01-03T00:00:00.000Z', 'n. 意外发现珍奇事物的运气')) });
+    expect(md).toContain('  - 释义：n. 意外发现珍奇事物的运气');
+    expect(md).toContain('  - 例句：A serendipity. — 一次幸运。');
+  });
+
+  it('the Markdown export keeps multi-line AI text on one list line', () => {
+    const md = toMarkdown({ serendipity: entry(lookup('2026-01-03T00:00:00.000Z', 'n. 运气\n- 第二行')) });
+    expect(md).toContain('  - 释义：n. 运气 - 第二行\n');
+    expect(md.split('\n').filter((l) => l.startsWith('- ') && l.includes('第二行'))).toEqual([]);
+  });
+
+  it('a malformed imported lookup does not break the Markdown export', () => {
+    const bad = { serendipity: entry({ definitions: [null, 3], collocations: [], phrases: [], examples: [null, { en: 'x' }], generatedAt: 'g' } as never) };
+    expect(() => toMarkdown(bad)).not.toThrow();
+    expect(toMarkdown(bad)).toContain('  - 例句：x — \n');
+  });
+
+  it('the Markdown export shows no definition lines for a word without a lookup', () => {
+    expect(toMarkdown({ serendipity: entry() })).not.toContain('释义');
+  });
+
+  it('a version 1 file imports its words as words', () => {
+    const v1 = JSON.stringify({ version: 1, words: { serendipity: entry() } });
+    expect(parseImport(v1).serendipity.kind).toBe('word');
+  });
+});
+
+describe('import and clear leave the AI config alone (ticket #9)', () => {
+  const cfg = { baseUrl: 'http://127.0.0.1:3425/v1', apiKey: 'secret', model: 'm', language: 'zh-CN' };
+  const area = (init: Record<string, unknown>) => {
+    const data: Record<string, unknown> = { ...init };
+    const a: Area & { data: Record<string, unknown> } = {
+      data,
+      get: async (keys) => Object.fromEntries(keys.filter((k) => k in data).map((k) => [k, data[k]])),
+      set: async (items) => { Object.assign(data, items); },
+    };
+    return a;
+  };
+  const withLookup: Words = normalizeWords({
+    serendipity: { word: 'serendipity', count: 2, status: 'saved', firstSeen: '2026-01-02T00:00:00.000Z', lastSeen: '2026-01-05T00:00:00.000Z', contexts: [],
+      lookup: { definitions: ['n. 运气'], collocations: [], phrases: [], examples: [], generatedAt: '2026-01-03T00:00:00.000Z' } },
+  });
+
+  it('importing a file with lookups keeps the saved AI config', async () => {
+    const a = area({ aiConfig: cfg, words: {} });
+    await createStore(a).handle({ type: 'import', words: withLookup });
+    expect(a.data.aiConfig).toEqual(cfg);
+    expect((a.data.words as Words).serendipity.lookup?.definitions).toEqual(['n. 运气']);
+  });
+
+  it('clear removes words and lookups but keeps the AI config', async () => {
+    const a = area({ aiConfig: cfg, words: withLookup });
+    await createStore(a).handle({ type: 'clear' });
+    expect(a.data.words).toEqual({});
+    expect(a.data.aiConfig).toEqual(cfg);
   });
 });
 

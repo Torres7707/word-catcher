@@ -225,6 +225,9 @@ export function parseImport(text: string): Words {
   return normalizeWords(raw as Record<string, unknown>);
 }
 
+/** AI text on one line. Line breaks would end a Markdown list item, and non-strings from a bad import become empty. */
+const flatText = (t: unknown): string => (typeof t === 'string' ? t.replace(/\s+/g, ' ').trim() : '');
+
 export function toMarkdown(words: Words): string {
   const groups: [string, WordEntry['status']][] = [['生词本', 'saved'], ['只划过一次', 'seen'], ['已掌握', 'mastered']];
   let md = `# Word Catcher 导出 (${new Date().toISOString().slice(0, 10)})\n`;
@@ -233,6 +236,10 @@ export function toMarkdown(words: Words): string {
     md += `\n## ${title} (${list.length})\n\n`;
     for (const w of list) {
       md += `- **${w.word}** ×${w.count} (${w.firstSeen.slice(0, 10)} → ${w.lastSeen.slice(0, 10)})\n`;
+      const defs = Array.isArray(w.lookup?.definitions) ? w.lookup.definitions : [];
+      const examples = Array.isArray(w.lookup?.examples) ? w.lookup.examples : [];
+      for (const d of defs) md += `  - 释义：${flatText(d)}\n`;
+      for (const ex of examples) md += `  - 例句：${flatText(ex?.en)} — ${flatText(ex?.translation)}\n`;
       for (const c of w.contexts) md += `  - ${c.sentence} — [${c.date.slice(0, 10)}](${c.url})\n`;
     }
   }
