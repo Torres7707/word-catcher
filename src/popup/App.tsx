@@ -88,6 +88,7 @@ export function App() {
         <button onClick={() => fileRef.current?.click()}>导入 JSON</button>
         <input ref={fileRef} type="file" accept=".json,application/json" hidden onChange={(e) => void onImport(e.target.files?.[0])} />
         <button className="danger" onClick={() => { if (confirm('确定清空所有单词？此操作不可撤销（建议先导出 JSON 备份）。')) void send({ type: 'clear' }); }}>清空</button>
+        <button onClick={() => void chrome.runtime.openOptionsPage()}>设置</button>
         <label className="toggle"><input type="checkbox" checked={settings.toast}
           onChange={(e) => void chrome.storage.local.set({ settings: { ...settings, toast: e.target.checked } })} /> 页面提示</label>
       </footer>
